@@ -7,12 +7,14 @@ import crypto from "node:crypto";
 import { Worker } from "node:worker_threads";
 import dotenv from "dotenv";
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
-import { autoUpdater } from "electron-updater";
+import electronUpdater from "electron-updater";
 import { GoogleDriveService } from "./services/google-drive.mjs";
 import { SaveSyncService } from "./services/save-sync.mjs";
 import { StateStore } from "./services/state-store.mjs";
 import { RestoreService } from "./services/restore-service.mjs";
 import { isProcessRunning } from "./services/system.mjs";
+
+const { autoUpdater } = electronUpdater;
 
 dotenv.config();
 

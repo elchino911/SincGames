@@ -1,0 +1,819 @@
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import type { BootstrapPayload, DiscoveryCandidate, DiscoveryStatusPayload, GameRecord, LaunchType, SyncEventPayload } from "./vite-env";
+
+type TopView = "library" | "discovery" | "cloud" | "activity";
+type LibraryTab = "summary" | "saves" | "paths" | "manage";
+
+type GameFormState = {
+  title: string;
+  processName: string;
+  savePath: string;
+  executablePath: string;
+  installRoot: string;
+  filePatterns: string;
+  launchType: LaunchType;
+  launchTarget: string;
+};
+
+const emptyForm = (): GameFormState => ({
+  title: "",
+  processName: "",
+  savePath: "",
+  executablePath: "",
+  installRoot: "",
+  filePatterns: "**/*",
+  launchType: "exe",
+  launchTarget: ""
+});
+
+const toFormState = (game: GameRecord | null): GameFormState =>
+  game
+    ? {
+        title: game.title,
+        processName: game.processName,
+        savePath: game.savePath,
+        executablePath: game.executablePath || "",
+        installRoot: game.installRoot || "",
+        filePatterns: game.filePatterns.join(", "),
+        launchType: game.launchType || "exe",
+        launchTarget: game.launchTarget || game.executablePath || ""
+      }
+    : emptyForm();
+
+const formatDate = (value?: string | null) =>
+  value
+    ? new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value))
+    : "Sin registro";
+
+const formatDuration = (seconds?: number) => {
+  const total = Math.max(0, Math.round(seconds || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (!hours && !minutes) return "< 1 min";
+  if (!hours) return `${minutes} min`;
+  return `${hours} h ${minutes} min`;
+};
+
+const splitPatterns = (value: string) =>
+  value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const launchHelp = (launchType: LaunchType) => {
+  if (launchType === "steam") return "App ID o URI steam://";
+  if (launchType === "uri") return "URI externa o deep link";
+  if (launchType === "command") return "Comando completo";
+  return "Ruta al ejecutable";
+};
+
+function App() {
+  const bridge = window.sincgames;
+  const [bridgeError, setBridgeError] = useState<string | null>(bridge ? null : "No se cargo el bridge de Electron.");
+  const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
+  const [activity, setActivity] = useState<SyncEventPayload[]>([]);
+  const [topView, setTopView] = useState<TopView>("library");
+  const [libraryTab, setLibraryTab] = useState<LibraryTab>("summary");
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const [libraryFilter, setLibraryFilter] = useState("");
+  const [newRoot, setNewRoot] = useState("");
+  const [manualForm, setManualForm] = useState<GameFormState>(emptyForm);
+  const [editForm, setEditForm] = useState<GameFormState>(emptyForm);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatusPayload | null>(null);
+  const [startupDismissed, setStartupDismissed] = useState(false);
+
+  useEffect(() => {
+    if (!bridge) return;
+
+    let mounted = true;
+
+    bridge
+      .getBootstrap()
+      .then((payload) => {
+        if (!mounted) return;
+        setBootstrap(payload);
+        setSelectedGameId((current) => current || payload.games[0]?.id || null);
+      })
+      .catch((error) => {
+        if (!mounted) return;
+        setBridgeError(error instanceof Error ? error.message : "No se pudo cargar la app.");
+      });
+
+    const offEvents = bridge.onSyncEvent((payload) => {
+      setActivity((current) => [payload, ...current].slice(0, 120));
+    });
+    const offState = bridge.onStateUpdated((payload) => {
+      setBootstrap(payload);
+      setSelectedGameId((current) => {
+        if (current && payload.games.some((game) => game.id === current)) return current;
+        return payload.games[0]?.id || null;
+      });
+    });
+    const offDiscovery = bridge.onDiscoveryStatus((payload) => {
+      setDiscoveryStatus(payload);
+    });
+
+    return () => {
+      mounted = false;
+      offEvents();
+      offState();
+      offDiscovery();
+    };
+  }, [bridge]);
+
+  const games = bootstrap?.games || [];
+  const selectedGame = games.find((game) => game.id === selectedGameId) || games[0] || null;
+  const scanRoots = bootstrap?.scanRoots || [];
+  const discoveryCandidates = bootstrap?.discoveryCandidates || [];
+
+  useEffect(() => {
+    setEditForm(toFormState(selectedGame));
+  }, [selectedGame]);
+
+  const filteredGames = useMemo(() => {
+    const needle = libraryFilter.trim().toLowerCase();
+    if (!needle) return games;
+    return games.filter((game) => [game.title, game.processName, game.savePath].join(" ").toLowerCase().includes(needle));
+  }, [games, libraryFilter]);
+
+  const selectedActivity = useMemo(
+    () => activity.filter((item) => !selectedGame || item.gameId === selectedGame.id),
+    [activity, selectedGame]
+  );
+
+  const totals = useMemo(
+    () => ({
+      games: games.length,
+      local: games.filter((game) => game.latestLocalSave).length,
+      remote: games.filter((game) => game.latestRemoteSave).length,
+      time: games.reduce((sum, game) => sum + Number(game.totalPlaySeconds || 0), 0)
+    }),
+    [games]
+  );
+
+  const showStartupOverlay = Boolean(
+    bootstrap?.startup.requiresStorageChoice && !startupDismissed
+  );
+
+  if (bridgeError) {
+    return (
+      <main className="bridge-error-screen">
+        <section className="bridge-error-card">
+          <p className="eyebrow">Estado</p>
+          <h1>SincGames no pudo iniciar la interfaz</h1>
+          <p>{bridgeError}</p>
+        </section>
+      </main>
+    );
+  }
+
+  const updateManual = (field: keyof GameFormState, value: string) =>
+    setManualForm((current) => ({ ...current, [field]: value }));
+  const updateEdit = (field: keyof GameFormState, value: string) =>
+    setEditForm((current) => ({ ...current, [field]: value }));
+
+  const pickDirectoryInto = async (field: keyof GameFormState, mode: "manual" | "edit") => {
+    if (!bridge) return;
+    const directory = await bridge.pickDirectory();
+    if (!directory) return;
+    if (mode === "manual") updateManual(field, directory);
+    else updateEdit(field, directory);
+  };
+
+  const addScanRoot = async () => {
+    if (!bridge || !newRoot.trim()) return;
+    setBusyAction("add-root");
+    try {
+      await bridge.addScanRoot(newRoot.trim());
+      setNewRoot("");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const scanForGames = async () => {
+    if (!bridge) return;
+    setBusyAction("scan");
+    try {
+      await bridge.scanForGames();
+    } catch (error) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: error instanceof Error ? error.message : "No se pudo completar el escaneo."
+        },
+        ...current
+      ]);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const importCandidate = async (candidate: DiscoveryCandidate) => {
+    if (!bridge) return;
+    setBusyAction(`import:${candidate.id}`);
+    try {
+      await bridge.addGameFromCandidate(candidate.id);
+      setTopView("library");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const submitManualGame = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!bridge) return;
+    setBusyAction("manual");
+    try {
+      await bridge.createManualGame({
+        title: manualForm.title,
+        processName: manualForm.processName,
+        savePath: manualForm.savePath,
+        executablePath: manualForm.executablePath,
+        installRoot: manualForm.installRoot,
+        filePatterns: splitPatterns(manualForm.filePatterns),
+        launchType: manualForm.launchType,
+        launchTarget: manualForm.launchTarget
+      });
+      setManualForm(emptyForm());
+      setTopView("library");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const submitEdit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!bridge || !selectedGame) return;
+    setBusyAction("edit");
+    try {
+      await bridge.updateGame({
+        gameId: selectedGame.id,
+        title: editForm.title,
+        processName: editForm.processName,
+        savePath: editForm.savePath,
+        executablePath: editForm.executablePath,
+        installRoot: editForm.installRoot,
+        filePatterns: splitPatterns(editForm.filePatterns),
+        launchType: editForm.launchType,
+        launchTarget: editForm.launchTarget
+      });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const launchGame = async (gameId: string) => {
+    if (!bridge) return;
+    setBusyAction(`launch:${gameId}`);
+    try {
+      await bridge.launchGame(gameId);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const restoreLatest = async (gameId: string) => {
+    if (!bridge) return;
+    setBusyAction(`restore:${gameId}`);
+    try {
+      await bridge.restoreLatestRemote(gameId);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const backupNow = async (gameId: string) => {
+    if (!bridge) return;
+    setBusyAction(`backup:${gameId}`);
+    try {
+      await bridge.backupNow(gameId);
+    } catch (error) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId,
+          message: error instanceof Error ? error.message : "No se pudo completar el respaldo manual."
+        },
+        ...current
+      ]);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const startMonitoring = async () => {
+    if (!bridge) return;
+    setBusyAction("monitor");
+    try {
+      await bridge.startMonitoring();
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const connectGoogle = async () => {
+    if (!bridge) return;
+    setBusyAction("google");
+    try {
+      await bridge.connectGoogleDrive();
+      setStartupDismissed(true);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const configureOfflineFallback = async () => {
+    if (!bridge) return;
+    const directory = await bridge.pickDirectory();
+    if (!directory) return;
+    setBusyAction("offline-dir");
+    try {
+      await bridge.setOfflineBackupDir(directory);
+      setStartupDismissed(true);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const renderLibraryContent = () => {
+    if (!selectedGame) {
+      return <p className="muted-copy">Agrega juegos desde Descubrimiento para poblar la biblioteca.</p>;
+    }
+
+    if (libraryTab === "summary") {
+      return (
+        <div className="steam-content-grid">
+          <article className="steam-card steam-feature-card">
+            <h4>Resumen del juego</h4>
+            <div className="steam-feature-layout">
+              <div className="steam-media-tile">{selectedGame.title.slice(0, 1).toUpperCase()}</div>
+              <div className="steam-feature-copy">
+                <p>Sincroniza saves al cerrar el juego y permite restaurar la ultima copia remota con respaldo temporal previo.</p>
+                <div className="steam-actions-row">
+                  <button className="play-button" onClick={() => void launchGame(selectedGame.id)} disabled={busyAction === `launch:${selectedGame.id}`}>
+                    JUGAR
+                  </button>
+                  <button className="secondary-button" onClick={() => void restoreLatest(selectedGame.id)} disabled={!selectedGame.latestRemoteSave || busyAction === `restore:${selectedGame.id}`}>
+                    Restaurar save
+                  </button>
+                  <button className="secondary-button" onClick={() => void backupNow(selectedGame.id)} disabled={busyAction === `backup:${selectedGame.id}`}>
+                    Respaldar ahora
+                  </button>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article className="steam-card">
+            <h4>Estado</h4>
+            <div className="steam-stat-list">
+              <div><span>Ultima sesion</span><strong>{formatDate(selectedGame.lastPlayedAt)}</strong></div>
+              <div><span>Tiempo jugado</span><strong>{formatDuration(selectedGame.totalPlaySeconds)}</strong></div>
+              <div><span>Save local</span><strong>{formatDate(selectedGame.latestLocalSave?.createdAt)}</strong></div>
+              <div><span>Save remoto</span><strong>{formatDate(selectedGame.latestRemoteSave?.createdAt)}</strong></div>
+            </div>
+          </article>
+
+          <article className="steam-card steam-card-span">
+            <h4>Actividad reciente</h4>
+            <div className="steam-feed">
+              {selectedActivity.slice(0, 8).map((item, index) => (
+                <article className={`steam-feed-item tone-${item.type === "snapshot" ? "success" : item.type}`} key={`${item.message}-${index}`}>
+                  <span>{formatDate(item.snapshot?.createdAt || null)}</span>
+                  <p>{item.message}</p>
+                </article>
+              ))}
+              {!selectedActivity.length ? <p className="muted-copy">Sin eventos recientes para este juego.</p> : null}
+            </div>
+          </article>
+        </div>
+      );
+    }
+
+    if (libraryTab === "saves") {
+      return (
+        <div className="steam-content-grid">
+          <article className="steam-card">
+            <h4>Save local actual</h4>
+            <div className="steam-stat-list">
+              <div><span>Fecha</span><strong>{formatDate(selectedGame.latestLocalSave?.createdAt)}</strong></div>
+              <div><span>Archivo</span><strong>{selectedGame.latestLocalSave?.archiveName || "Sin snapshot local"}</strong></div>
+              <div><span>Tamano</span><strong>{selectedGame.latestLocalSave ? `${Math.round(selectedGame.latestLocalSave.sizeBytes / 1024)} KB` : "Sin datos"}</strong></div>
+            </div>
+          </article>
+          <article className="steam-card">
+            <h4>Save remoto actual</h4>
+            <div className="steam-stat-list">
+              <div><span>Fecha</span><strong>{formatDate(selectedGame.latestRemoteSave?.createdAt)}</strong></div>
+              <div><span>Archivo</span><strong>{selectedGame.latestRemoteSave?.archiveName || "Sin backup remoto"}</strong></div>
+              <div><span>Equipo</span><strong>{selectedGame.latestRemoteSave?.deviceLabel || "Sin datos"}</strong></div>
+            </div>
+          </article>
+          <article className="steam-card steam-card-span">
+            <h4>Acciones de save</h4>
+            <div className="steam-actions-row">
+              <button className="secondary-button" onClick={startMonitoring} disabled={busyAction === "monitor"}>Empezar monitoreo</button>
+              <button className="secondary-button" onClick={() => void restoreLatest(selectedGame.id)} disabled={!selectedGame.latestRemoteSave || busyAction === `restore:${selectedGame.id}`}>Restaurar ultimo remoto</button>
+              <button className="secondary-button" onClick={() => void backupNow(selectedGame.id)} disabled={busyAction === `backup:${selectedGame.id}`}>Respaldar manualmente</button>
+            </div>
+          </article>
+        </div>
+      );
+    }
+
+    if (libraryTab === "paths") {
+      return (
+        <div className="steam-content-grid">
+          <article className="steam-card steam-card-span">
+            <h4>Rutas</h4>
+            <div className="steam-path-list">
+              <div><span>Instalacion</span><strong>{selectedGame.installRoot || "Sin registrar"}</strong></div>
+              <div><span>Save path</span><strong>{selectedGame.savePath}</strong></div>
+              <div><span>Ejecutable</span><strong>{selectedGame.executablePath || "Sin registrar"}</strong></div>
+              <div><span>Launch target</span><strong>{selectedGame.launchTarget || "Sin registrar"}</strong></div>
+              <div><span>Patrones</span><strong>{selectedGame.filePatterns.join(", ")}</strong></div>
+            </div>
+          </article>
+        </div>
+      );
+    }
+
+    return (
+      <article className="steam-card steam-card-span">
+        <h4>Administrar juego</h4>
+        <form className="steam-form" onSubmit={submitEdit}>
+          <label><span>Nombre</span><input value={editForm.title} onChange={(e) => updateEdit("title", e.target.value)} required /></label>
+          <label><span>Proceso</span><input value={editForm.processName} onChange={(e) => updateEdit("processName", e.target.value)} required /></label>
+          <label>
+            <span>Ruta de save</span>
+            <div className="field-with-action">
+              <input value={editForm.savePath} onChange={(e) => updateEdit("savePath", e.target.value)} required />
+              <button className="mini-button" type="button" onClick={() => void pickDirectoryInto("savePath", "edit")}>Elegir</button>
+            </div>
+          </label>
+          <label><span>Ejecutable</span><input value={editForm.executablePath} onChange={(e) => updateEdit("executablePath", e.target.value)} /></label>
+          <label><span>Instalacion</span><input value={editForm.installRoot} onChange={(e) => updateEdit("installRoot", e.target.value)} /></label>
+          <label>
+            <span>Tipo de lanzamiento</span>
+            <select value={editForm.launchType} onChange={(e) => updateEdit("launchType", e.target.value)}>
+              <option value="exe">EXE</option>
+              <option value="steam">Steam</option>
+              <option value="uri">URI</option>
+              <option value="command">Comando</option>
+            </select>
+          </label>
+          <label><span>{launchHelp(editForm.launchType)}</span><input value={editForm.launchTarget} onChange={(e) => updateEdit("launchTarget", e.target.value)} /></label>
+          <label><span>Patrones</span><input value={editForm.filePatterns} onChange={(e) => updateEdit("filePatterns", e.target.value)} /></label>
+          <button className="secondary-button" type="submit" disabled={busyAction === "edit"}>Guardar cambios</button>
+        </form>
+      </article>
+    );
+  };
+
+  const renderMainPanel = () => {
+    if (topView === "discovery") {
+      return (
+        <>
+          <section className="steam-section-head">
+            <div>
+              <span className="section-kicker">Descubrimiento</span>
+              <h2>Escaneo de roots y alta manual</h2>
+            </div>
+            <button className="secondary-button" onClick={scanForGames} disabled={busyAction === "scan" || bootstrap?.runtime.discoveryRunning}>
+              {bootstrap?.runtime.discoveryRunning ? "Escaneando..." : "Escanear roots"}
+            </button>
+          </section>
+
+          <div className="steam-content-grid discovery-layout">
+            <article className="steam-card">
+              <h4>Roots</h4>
+              <div className="steam-form">
+                <label>
+                  <span>Nueva root</span>
+                  <div className="field-with-action">
+                    <input value={newRoot} onChange={(e) => setNewRoot(e.target.value)} placeholder="D:\\SteamLibrary" />
+                    <button className="mini-button" type="button" onClick={() => void bridge?.pickDirectory().then((dir) => dir && setNewRoot(dir))}>Elegir</button>
+                  </div>
+                </label>
+                <button className="secondary-button" onClick={addScanRoot} disabled={busyAction === "add-root"}>Agregar root</button>
+              </div>
+              <div className="steam-list">
+                {scanRoots.map((root) => (
+                  <div className="steam-list-row" key={root}>
+                    <strong>{root}</strong>
+                    <button className="mini-button" onClick={() => void bridge?.removeScanRoot(root)}>Quitar</button>
+                  </div>
+                ))}
+                {!scanRoots.length ? <p className="muted-copy">Todavia no hay directorios agregados.</p> : null}
+              </div>
+            </article>
+
+            <article className="steam-card">
+              <h4>Candidatos</h4>
+              {discoveryStatus ? (
+                <p className="muted-copy">
+                  {discoveryStatus.phase} - {discoveryStatus.rootIndex}/{discoveryStatus.rootCount} roots - {discoveryStatus.processedExecutables} ejecutables
+                </p>
+              ) : null}
+              <div className="steam-feed">
+                {discoveryCandidates.map((candidate) => (
+                  <article className="steam-feed-item" key={candidate.id}>
+                    <span>{candidate.processName}</span>
+                    <p>{candidate.title}</p>
+                    <small>{candidate.suggestedSavePath}</small>
+                    <button className="mini-button" onClick={() => void importCandidate(candidate)} disabled={busyAction === `import:${candidate.id}`}>Importar</button>
+                  </article>
+                ))}
+                {!discoveryCandidates.length ? <p className="muted-copy">No hay candidatos en memoria.</p> : null}
+              </div>
+            </article>
+
+            <article className="steam-card">
+              <h4>Alta manual</h4>
+              <form className="steam-form" onSubmit={submitManualGame}>
+                <label><span>Nombre</span><input value={manualForm.title} onChange={(e) => updateManual("title", e.target.value)} required /></label>
+                <label><span>Proceso</span><input value={manualForm.processName} onChange={(e) => updateManual("processName", e.target.value)} required /></label>
+                <label>
+                  <span>Ruta de save</span>
+                  <div className="field-with-action">
+                    <input value={manualForm.savePath} onChange={(e) => updateManual("savePath", e.target.value)} required />
+                    <button className="mini-button" type="button" onClick={() => void pickDirectoryInto("savePath", "manual")}>Elegir</button>
+                  </div>
+                </label>
+                <label><span>Ejecutable</span><input value={manualForm.executablePath} onChange={(e) => updateManual("executablePath", e.target.value)} /></label>
+                <label><span>Instalacion</span><input value={manualForm.installRoot} onChange={(e) => updateManual("installRoot", e.target.value)} /></label>
+                <label>
+                  <span>Tipo de lanzamiento</span>
+                  <select value={manualForm.launchType} onChange={(e) => updateManual("launchType", e.target.value)}>
+                    <option value="exe">EXE</option>
+                    <option value="steam">Steam</option>
+                    <option value="uri">URI</option>
+                    <option value="command">Comando</option>
+                  </select>
+                </label>
+                <label><span>{launchHelp(manualForm.launchType)}</span><input value={manualForm.launchTarget} onChange={(e) => updateManual("launchTarget", e.target.value)} /></label>
+                <label><span>Patrones</span><input value={manualForm.filePatterns} onChange={(e) => updateManual("filePatterns", e.target.value)} /></label>
+                <button className="secondary-button" type="submit" disabled={busyAction === "manual"}>Guardar juego</button>
+              </form>
+            </article>
+          </div>
+        </>
+      );
+    }
+
+    if (topView === "cloud") {
+      return (
+        <>
+          <section className="steam-section-head">
+            <div>
+              <span className="section-kicker">Nube</span>
+              <h2>Google Drive y catalogo remoto</h2>
+            </div>
+            <button className="secondary-button" onClick={connectGoogle} disabled={busyAction === "google"}>
+              {bootstrap?.capabilities.googleAuthenticated ? "Cuenta conectada" : "Conectar con Google"}
+            </button>
+          </section>
+          <div className="steam-content-grid">
+            <article className="steam-card">
+              <h4>Estado</h4>
+              <div className="steam-stat-list">
+                <div><span>Cuenta</span><strong>{bootstrap?.capabilities.googleAuthenticated ? "Conectada" : "Pendiente"}</strong></div>
+                <div><span>Carpeta raiz</span><strong>{bootstrap?.env.driveRootFolderName}</strong></div>
+                <div><span>Saves remotos</span><strong>{totals.remote}</strong></div>
+                <div><span>Fallback local</span><strong>{bootstrap?.env.offlineBackupDir || "No configurado"}</strong></div>
+              </div>
+            </article>
+            <article className="steam-card steam-card-span">
+              <h4>Politica</h4>
+              <div className="steam-path-list">
+                <div><span>Subida</span><strong>Se comprime el save cuando el juego ya esta cerrado y hubo cambios.</strong></div>
+                <div><span>Restauracion</span><strong>Se crea un backup temporal local antes de sobrescribir.</strong></div>
+                <div><span>Catalogo</span><strong>Rutas y metadata de juegos viven en Drive para evitar perdida por formateo.</strong></div>
+              </div>
+              <div className="steam-actions-row">
+                <button className="secondary-button" onClick={connectGoogle} disabled={busyAction === "google"}>Conectar Google</button>
+                <button className="secondary-button" onClick={configureOfflineFallback} disabled={busyAction === "offline-dir"}>Elegir carpeta local</button>
+              </div>
+            </article>
+          </div>
+        </>
+      );
+    }
+
+    if (topView === "activity") {
+      return (
+        <>
+          <section className="steam-section-head">
+            <div>
+              <span className="section-kicker">Actividad</span>
+              <h2>Bitacora del sistema</h2>
+            </div>
+          </section>
+          <article className="steam-card">
+            <div className="steam-feed">
+              {activity.map((item, index) => (
+                <article className={`steam-feed-item tone-${item.type === "snapshot" ? "success" : item.type}`} key={`${item.message}-${index}`}>
+                  <span>{item.gameId || "global"}</span>
+                  <p>{item.message}</p>
+                </article>
+              ))}
+              {!activity.length ? <p className="muted-copy">Todavia no hay eventos.</p> : null}
+            </div>
+          </article>
+        </>
+      );
+    }
+
+    return (
+      <>
+        <section className="game-hero">
+          <div className="game-hero-backdrop" />
+          <div className="game-hero-content">
+            <div className="game-hero-copy">
+              <span className="section-kicker">Biblioteca</span>
+              <h2>{selectedGame?.title || "Sin seleccion"}</h2>
+              <p>{selectedGame ? `${selectedGame.processName} - doble click en la lista izquierda para iniciar.` : "Selecciona un juego para ver detalle."}</p>
+            </div>
+            <div className="game-hero-metrics">
+              <div><span>Ultima sesion</span><strong>{formatDate(selectedGame?.lastPlayedAt)}</strong></div>
+              <div><span>Tiempo jugado</span><strong>{formatDuration(selectedGame?.totalPlaySeconds)}</strong></div>
+              <div><span>Estado cloud</span><strong>{selectedGame?.latestRemoteSave ? "Actualizado" : "Pendiente"}</strong></div>
+            </div>
+          </div>
+        </section>
+
+        <section className="steam-action-bar">
+          <button className="play-button" onClick={() => selectedGame && void launchGame(selectedGame.id)} disabled={!selectedGame || busyAction === `launch:${selectedGame?.id}`}>
+            JUGAR
+          </button>
+          <button className="secondary-button" onClick={() => selectedGame && void backupNow(selectedGame.id)} disabled={!selectedGame || busyAction === `backup:${selectedGame?.id}`}>
+            Respaldar ahora
+          </button>
+          <div className="action-status">
+            <span>Monitoreo</span>
+            <strong>{bootstrap?.runtime.monitoringStarted ? "Activo" : "Detenido"}</strong>
+          </div>
+          <div className="action-status">
+            <span>Ultimo save</span>
+            <strong>{formatDate(selectedGame?.latestLocalSave?.createdAt)}</strong>
+          </div>
+          <div className="action-status">
+            <span>Tiempo de juego</span>
+            <strong>{formatDuration(selectedGame?.totalPlaySeconds)}</strong>
+          </div>
+        </section>
+
+        <section className="steam-subnav">
+          {[
+            { id: "summary", label: "Resumen" },
+            { id: "saves", label: "Saves" },
+            { id: "paths", label: "Rutas" },
+            { id: "manage", label: "Administrar" }
+          ].map((item) => (
+            <button key={item.id} className={`steam-subnav-item ${libraryTab === item.id ? "active" : ""}`} onClick={() => setLibraryTab(item.id as LibraryTab)}>
+              {item.label}
+            </button>
+          ))}
+        </section>
+
+        {renderLibraryContent()}
+      </>
+    );
+  };
+
+  return (
+    <main className="steam-shell">
+      <header className="steam-topbar">
+        <div className="steam-brand">
+          <strong>{bootstrap?.env.appName || "SincGames"}</strong>
+          <span>Launcher + Save Sync</span>
+        </div>
+        <nav className="steam-topnav">
+          {[
+            { id: "library", label: "BIBLIOTECA" },
+            { id: "discovery", label: "DESCUBRIMIENTO" },
+            { id: "cloud", label: "NUBE" },
+            { id: "activity", label: "ACTIVIDAD" }
+          ].map((item) => (
+            <button key={item.id} className={`steam-topnav-item ${topView === item.id ? "active" : ""}`} onClick={() => setTopView(item.id as TopView)}>
+              {item.label}
+            </button>
+          ))}
+        </nav>
+        <div className="steam-topbar-status">
+          <span>{bootstrap?.capabilities.googleAuthenticated ? "Drive conectado" : "Drive pendiente"}</span>
+          <button className="tiny-button" onClick={connectGoogle}>Cuenta</button>
+        </div>
+      </header>
+
+      <section className="steam-body">
+        <aside className="steam-sidebar">
+          <div className="steam-sidebar-top">
+            <div className="steam-sidebar-filter">
+              <input value={libraryFilter} onChange={(e) => setLibraryFilter(e.target.value)} placeholder="Buscar en biblioteca" />
+            </div>
+            <div className="steam-sidebar-links">
+              <button className={`steam-mini-nav ${topView === "library" ? "active" : ""}`} onClick={() => setTopView("library")}>Juegos</button>
+              <button className={`steam-mini-nav ${topView === "discovery" ? "active" : ""}`} onClick={() => setTopView("discovery")}>Escaneo</button>
+            </div>
+          </div>
+
+          <div className="steam-library-list">
+            {filteredGames.map((game) => (
+              <button
+                key={game.id}
+                className={`steam-library-row ${selectedGame?.id === game.id ? "active" : ""}`}
+                onClick={() => {
+                  setSelectedGameId(game.id);
+                  setTopView("library");
+                }}
+                onDoubleClick={() => void launchGame(game.id)}
+              >
+                <div className="steam-library-icon">{game.title.slice(0, 1).toUpperCase()}</div>
+                <div className="steam-library-copy">
+                  <strong>{game.title}</strong>
+                  <span>{game.currentlyRunning ? "En ejecucion" : formatDuration(game.totalPlaySeconds)}</span>
+                </div>
+              </button>
+            ))}
+            {!filteredGames.length ? <p className="muted-copy">No hay juegos que coincidan con la busqueda.</p> : null}
+          </div>
+
+          <div className="steam-sidebar-footer">
+            <button className="secondary-button" onClick={startMonitoring} disabled={busyAction === "monitor"}>Empezar monitoreo</button>
+            <div className="sidebar-footer-stats">
+              <span>{totals.games} juegos</span>
+              <span>{totals.remote} backups remotos</span>
+            </div>
+          </div>
+        </aside>
+
+        <section className="steam-main">{renderMainPanel()}</section>
+
+        <aside className="steam-rail">
+          <article className="steam-card">
+            <h4>Estado del sistema</h4>
+            <div className="steam-stat-list">
+              <div><span>Google Drive</span><strong>{bootstrap?.capabilities.googleAuthenticated ? "Conectado" : "Pendiente"}</strong></div>
+              <div><span>Monitoreo</span><strong>{bootstrap?.runtime.monitoringStarted ? "Activo" : "Detenido"}</strong></div>
+              <div><span>Escaneo</span><strong>{bootstrap?.runtime.discoveryRunning ? "En curso" : "Libre"}</strong></div>
+              <div><span>Tiempo total</span><strong>{formatDuration(totals.time)}</strong></div>
+            </div>
+          </article>
+
+          <article className="steam-card">
+            <h4>Juego seleccionado</h4>
+            {selectedGame ? (
+              <div className="steam-stat-list">
+                <div><span>Proceso</span><strong>{selectedGame.processName}</strong></div>
+                <div><span>Save path</span><strong>{selectedGame.savePath}</strong></div>
+                <div><span>Cloud</span><strong>{selectedGame.latestRemoteSave ? "Con backup" : "Sin backup"}</strong></div>
+              </div>
+            ) : (
+              <p className="muted-copy">Sin juego seleccionado.</p>
+            )}
+          </article>
+
+          <article className="steam-card">
+            <h4>Resumen general</h4>
+            <div className="steam-stat-list">
+              <div><span>Juegos</span><strong>{totals.games}</strong></div>
+              <div><span>Saves locales</span><strong>{totals.local}</strong></div>
+              <div><span>Saves remotos</span><strong>{totals.remote}</strong></div>
+            </div>
+          </article>
+        </aside>
+      </section>
+
+      {showStartupOverlay ? (
+        <section className="startup-overlay">
+          <article className="startup-card">
+            <span className="section-kicker">Configuracion inicial</span>
+            <h3>Conecta Google o elige un respaldo local antes de seguir.</h3>
+            <p className="muted-copy">
+              Si conectas Google Drive, la app escanea tu cuenta, restaura la biblioteca respaldada y actualiza la configuracion.
+              Si no quieres conectarla ahora, configura una carpeta local para usarla como fallback de backups.
+            </p>
+            <div className="steam-actions-row">
+              <button className="play-button" onClick={connectGoogle} disabled={busyAction === "google"}>
+                Conectar Google
+              </button>
+              <button className="secondary-button" onClick={configureOfflineFallback} disabled={busyAction === "offline-dir"}>
+                Elegir carpeta local
+              </button>
+            </div>
+            <div className="startup-hints">
+              <span>Google: restaura catalogo y backups remotos.</span>
+              <span>Fallback local: guarda ZIPs y catalogo en la carpeta elegida.</span>
+            </div>
+          </article>
+        </section>
+      ) : null}
+    </main>
+  );
+}
+
+export default App;

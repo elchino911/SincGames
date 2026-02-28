@@ -1,0 +1,674 @@
+@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap");
+
+:root {
+  color-scheme: dark;
+  font-family: "Source Sans 3", sans-serif;
+  color: #c7d5e0;
+  background: radial-gradient(circle at top, rgba(26, 77, 122, 0.2), transparent 28%), linear-gradient(180deg, #0b1118 0%, #101822 48%, #0a1016 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100vh;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: transparent;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+input,
+select {
+  width: 100%;
+  border: 1px solid rgba(103, 137, 164, 0.26);
+  border-radius: 4px;
+  background: rgba(17, 25, 35, 0.95);
+  padding: 0.72rem 0.82rem;
+  color: #d6e2ea;
+}
+
+input:focus,
+select:focus {
+  outline: 1px solid rgba(102, 192, 244, 0.5);
+  border-color: rgba(102, 192, 244, 0.5);
+}
+
+.bridge-error-screen {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 2rem;
+}
+
+.bridge-error-card {
+  width: min(720px, 100%);
+  padding: 2rem;
+  border: 1px solid rgba(103, 137, 164, 0.24);
+  border-radius: 14px;
+  background: #16202d;
+}
+
+.bridge-error-card h1 {
+  margin: 0.2rem 0 0.8rem;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 2rem;
+  letter-spacing: 0.04em;
+}
+
+.startup-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(5, 10, 15, 0.76);
+  backdrop-filter: blur(8px);
+}
+
+.startup-card {
+  width: min(760px, 100%);
+  display: grid;
+  gap: 1rem;
+  padding: 1.4rem;
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(26, 39, 53, 0.98), rgba(19, 29, 39, 0.98));
+  border: 1px solid rgba(102, 192, 244, 0.22);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.36);
+}
+
+.startup-card h3 {
+  margin: 0;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 1.8rem;
+  letter-spacing: 0.03em;
+}
+
+.startup-hints {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.88rem;
+  color: rgba(199, 213, 224, 0.72);
+}
+
+.eyebrow,
+.section-kicker {
+  display: inline-block;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #66c0f4;
+}
+
+.muted-copy {
+  margin: 0;
+  color: rgba(199, 213, 224, 0.68);
+}
+
+.steam-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: 58px 1fr;
+  background:
+    linear-gradient(180deg, rgba(6, 10, 15, 0.98), rgba(7, 12, 18, 0.9)),
+    linear-gradient(180deg, #101822 0%, #111b26 100%);
+}
+
+.steam-topbar {
+  display: grid;
+  grid-template-columns: 220px 1fr auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0 1rem;
+  background: linear-gradient(180deg, #1a2634 0%, #171f2c 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.steam-brand {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.steam-brand strong {
+  font-family: "Rajdhani", sans-serif;
+  font-size: 1.2rem;
+  letter-spacing: 0.04em;
+}
+
+.steam-brand span,
+.steam-topbar-status span {
+  font-size: 0.82rem;
+  color: rgba(199, 213, 224, 0.7);
+}
+
+.steam-topnav {
+  display: flex;
+  gap: 0.2rem;
+}
+
+.steam-topnav-item,
+.steam-mini-nav,
+.steam-subnav-item,
+.tiny-button {
+  border: none;
+  background: transparent;
+  color: rgba(199, 213, 224, 0.75);
+}
+
+.steam-topnav-item {
+  padding: 0.8rem 0.9rem;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.steam-topnav-item.active {
+  color: #ffffff;
+  background: linear-gradient(180deg, rgba(79, 152, 204, 0.16), rgba(79, 152, 204, 0));
+}
+
+.steam-topbar-status {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.tiny-button {
+  padding: 0.45rem 0.75rem;
+  border-radius: 3px;
+  background: rgba(102, 192, 244, 0.16);
+  color: #dff4ff;
+}
+
+.steam-body {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 280px;
+  min-height: 0;
+}
+
+.steam-sidebar {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  background: linear-gradient(180deg, rgba(22, 31, 43, 0.98), rgba(16, 23, 32, 0.98));
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.steam-sidebar-top,
+.steam-sidebar-footer {
+  padding: 0.9rem;
+}
+
+.steam-sidebar-links {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+}
+
+.steam-mini-nav {
+  padding: 0.45rem 0.7rem;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.steam-mini-nav.active {
+  color: #fff;
+  background: rgba(102, 192, 244, 0.15);
+}
+
+.steam-library-list {
+  min-height: 0;
+  overflow: auto;
+  padding: 0.25rem 0.35rem 0.8rem;
+}
+
+.steam-library-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: center;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border: none;
+  background: transparent;
+  text-align: left;
+  color: #c7d5e0;
+}
+
+.steam-library-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.steam-library-row.active {
+  background: linear-gradient(90deg, rgba(102, 192, 244, 0.26), rgba(102, 192, 244, 0.02));
+}
+
+.steam-library-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, #66c0f4, #355e7d);
+  color: #031018;
+  font-weight: 700;
+}
+
+.steam-library-copy {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.steam-library-copy strong {
+  font-size: 0.96rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.steam-library-copy span {
+  font-size: 0.8rem;
+  color: rgba(199, 213, 224, 0.56);
+}
+
+.steam-sidebar-footer {
+  display: grid;
+  gap: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.sidebar-footer-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: rgba(199, 213, 224, 0.62);
+}
+
+.steam-main {
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem;
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+}
+
+.steam-rail {
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem 1rem 1rem 0;
+  display: grid;
+  align-content: start;
+  gap: 1rem;
+}
+
+.game-hero {
+  position: relative;
+  min-height: 240px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: linear-gradient(120deg, rgba(33, 82, 121, 0.8), rgba(12, 22, 32, 0.95) 60%), radial-gradient(circle at 75% 25%, rgba(102, 192, 244, 0.4), transparent 20%);
+}
+
+.game-hero-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 45%),
+    radial-gradient(circle at 20% 30%, rgba(255, 122, 122, 0.22), transparent 24%);
+}
+
+.game-hero-content {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  padding: 1.4rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: end;
+  gap: 1rem;
+}
+
+.game-hero-copy h2,
+.steam-section-head h2 {
+  margin: 0.2rem 0 0.45rem;
+  font-family: "Rajdhani", sans-serif;
+  font-size: clamp(2rem, 3vw, 3.25rem);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.game-hero-copy p {
+  margin: 0;
+  max-width: 58ch;
+  color: rgba(222, 239, 248, 0.82);
+}
+
+.game-hero-metrics {
+  display: grid;
+  gap: 0.55rem;
+  padding: 1rem;
+  background: rgba(6, 12, 18, 0.46);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.game-hero-metrics div,
+.steam-stat-list div,
+.steam-path-list div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.game-hero-metrics span,
+.steam-stat-list span,
+.steam-path-list span,
+.action-status span,
+.steam-feed-item span {
+  font-size: 0.78rem;
+  color: rgba(199, 213, 224, 0.58);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.game-hero-metrics strong,
+.steam-stat-list strong,
+.steam-path-list strong,
+.action-status strong {
+  font-size: 0.98rem;
+  color: #ecf4f8;
+}
+
+.steam-action-bar {
+  display: grid;
+  grid-template-columns: auto auto repeat(3, minmax(140px, 1fr));
+  gap: 0.5rem;
+  padding: 0.7rem;
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(37, 49, 66, 0.94), rgba(29, 39, 53, 0.96));
+}
+
+.play-button,
+.secondary-button,
+.mini-button {
+  border: none;
+  border-radius: 3px;
+}
+
+.play-button {
+  min-width: 148px;
+  padding: 0.9rem 1.2rem;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  background: linear-gradient(180deg, #84c94f, #4a8b2c);
+  color: #f4fff0;
+}
+
+.secondary-button {
+  padding: 0.72rem 0.95rem;
+  background: linear-gradient(180deg, #36536a, #24384b);
+  color: #d7ecf8;
+}
+
+.mini-button {
+  padding: 0.52rem 0.74rem;
+  background: rgba(102, 192, 244, 0.14);
+  color: #dff4ff;
+}
+
+.action-status {
+  display: grid;
+  align-content: center;
+  gap: 0.1rem;
+  padding: 0.6rem 0.8rem;
+  background: rgba(10, 15, 23, 0.28);
+}
+
+.steam-subnav {
+  display: flex;
+  gap: 0.2rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.steam-subnav-item {
+  padding: 0.8rem 1rem;
+  font-size: 0.92rem;
+}
+
+.steam-subnav-item.active {
+  color: #fff;
+  background: linear-gradient(180deg, rgba(102, 192, 244, 0.18), rgba(102, 192, 244, 0));
+}
+
+.steam-section-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.steam-section-head h2 {
+  font-size: 2rem;
+}
+
+.steam-content-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.discovery-layout {
+  grid-template-columns: 0.9fr 1.1fr 0.95fr;
+}
+
+.steam-card {
+  padding: 1rem;
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(26, 39, 53, 0.94), rgba(19, 29, 39, 0.96));
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+.steam-card h4 {
+  margin: 0 0 0.8rem;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 1.1rem;
+  letter-spacing: 0.04em;
+}
+
+.steam-card-span {
+  grid-column: 1 / -1;
+}
+
+.steam-feature-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.steam-media-tile {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, rgba(102, 192, 244, 0.82), rgba(34, 68, 96, 0.92));
+  font-family: "Rajdhani", sans-serif;
+  font-size: 4rem;
+  color: #071018;
+}
+
+.steam-feature-copy {
+  display: grid;
+  align-content: start;
+  gap: 0.9rem;
+}
+
+.steam-feature-copy p,
+.steam-feed-item p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.steam-actions-row {
+  display: flex;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.steam-stat-list,
+.steam-path-list,
+.steam-feed,
+.steam-list,
+.steam-form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.steam-feed-item,
+.steam-list-row {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.8rem;
+  background: rgba(8, 14, 20, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.steam-feed-item small {
+  color: rgba(199, 213, 224, 0.6);
+}
+
+.steam-list-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.steam-form label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.steam-form label span {
+  font-size: 0.84rem;
+  color: rgba(199, 213, 224, 0.72);
+}
+
+.field-with-action {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem;
+}
+
+.tone-info {
+  border-left: 3px solid #66c0f4;
+}
+
+.tone-warning {
+  border-left: 3px solid #d6a13d;
+}
+
+.tone-success {
+  border-left: 3px solid #84c94f;
+}
+
+@media (max-width: 1400px) {
+  .steam-body {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+
+  .steam-rail {
+    grid-column: 2;
+    padding-left: 1rem;
+    padding-top: 0;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .discovery-layout {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .discovery-layout > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 1120px) {
+  .steam-shell {
+    grid-template-rows: auto 1fr;
+  }
+
+  .steam-topbar,
+  .steam-body,
+  .steam-content-grid,
+  .steam-feature-layout,
+  .game-hero-content,
+  .steam-action-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .steam-topbar {
+    padding: 0.9rem;
+  }
+
+  .steam-topnav {
+    flex-wrap: wrap;
+  }
+
+  .steam-body {
+    grid-template-columns: 1fr;
+  }
+
+  .steam-sidebar,
+  .steam-main,
+  .steam-rail {
+    padding: 0;
+  }
+
+  .steam-main,
+  .steam-rail {
+    padding: 1rem;
+  }
+
+  .steam-rail {
+    grid-column: auto;
+    padding-top: 0;
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .steam-main,
+  .steam-rail,
+  .steam-sidebar-top,
+  .steam-sidebar-footer {
+    padding: 0.8rem;
+  }
+
+  .steam-library-list {
+    max-height: 320px;
+  }
+
+  .steam-subnav,
+  .steam-actions-row,
+  .steam-sidebar-links {
+    flex-wrap: wrap;
+  }
+}

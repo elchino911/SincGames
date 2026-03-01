@@ -383,6 +383,11 @@ function App() {
     }
   };
 
+  const openCloudCredentialsPanel = () => {
+    setTopView("cloud");
+    setStartupDismissed(true);
+  };
+
   const renderLibraryContent = () => {
     if (!selectedGame) {
       return <p className="muted-copy">Agrega juegos desde Descubrimiento para poblar la biblioteca.</p>;
@@ -881,7 +886,7 @@ function App() {
             </p>
             <div className="steam-actions-row">
               {!bootstrap?.capabilities.googleConfigured ? (
-                <button className="secondary-button" onClick={() => setTopView("cloud")}>
+                <button className="secondary-button" onClick={openCloudCredentialsPanel}>
                   Configurar credenciales
                 </button>
               ) : null}

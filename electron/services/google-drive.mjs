@@ -77,7 +77,7 @@ export class GoogleDriveService {
 
   async startDesktopAuthFlow(onConnected) {
     if (!this.isConfigured()) {
-      throw new Error("Faltan credenciales OAuth de Google.");
+      throw new Error("Faltan credenciales OAuth de Google. Copia un archivo .env junto al ejecutable y completa GOOGLE_OAUTH_CLIENT_ID y GOOGLE_OAUTH_CLIENT_SECRET.");
     }
 
     const authUrl = this.getAuthUrl();

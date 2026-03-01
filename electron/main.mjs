@@ -16,12 +16,27 @@ import { isProcessRunning } from "./services/system.mjs";
 
 const { autoUpdater } = electronUpdater;
 
-dotenv.config();
-
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function loadEnvFiles() {
+  const candidates = [
+    path.join(process.cwd(), ".env"),
+    path.join(path.dirname(process.execPath), ".env"),
+    path.join(process.resourcesPath || "", ".env"),
+    path.join(path.dirname(process.execPath), ".env.local")
+  ].filter(Boolean);
+
+  for (const envPath of candidates) {
+    if (fs.existsSync(envPath)) {
+      dotenv.config({ path: envPath, override: false });
+    }
+  }
+}
+
+loadEnvFiles();
 
 const env = {
   APP_NAME: process.env.APP_NAME || "SincGames",

@@ -36,6 +36,19 @@ Configura estas variables en `.env`:
 - `TEMP_BACKUP_RETENTION_DAYS`
 - `DISCOVERY_SCAN_DEPTH`
 
+## Build empaquetado
+
+Las releases publicas no incluyen tus credenciales reales de Google.
+
+Para que el portable o el instalador puedan usar Drive:
+
+1. coloca un archivo `.env` junto al `.exe` de `SincGames`;
+2. puedes partir de `.env.example`;
+3. llena al menos:
+   - `GOOGLE_OAUTH_CLIENT_ID`
+   - `GOOGLE_OAUTH_CLIENT_SECRET`
+   - `GOOGLE_OAUTH_REDIRECT_URI`
+
 ## Modelo remoto previsto
 
 - `/library/games.json`

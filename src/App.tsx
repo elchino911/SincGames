@@ -1,7 +1,18 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { BootstrapPayload, DiscoveryCandidate, DiscoveryStatusPayload, GameRecord, GoogleOAuthPayload, LaunchType, SyncEventPayload } from "./vite-env";
+import type {
+  BootstrapPayload,
+  DiscoveryCandidate,
+  DiscoveryStatusPayload,
+  GameRecord,
+  GoogleOAuthPayload,
+  LaunchType,
+  SyncEventPayload,
+  TorrentDownloadPayload,
+  TorrentDownloadRecord,
+  TorrentReleaseSourceRecord
+} from "./vite-env";
 
-type TopView = "library" | "discovery" | "cloud" | "activity";
+type TopView = "library" | "discovery" | "downloads" | "cloud" | "activity";
 type LibraryTab = "summary" | "saves" | "paths" | "manage";
 
 type GameFormState = {
@@ -67,6 +78,74 @@ const launchHelp = (launchType: LaunchType) => {
   if (launchType === "uri") return "URI externa o deep link";
   if (launchType === "command") return "Comando completo";
   return "Ruta al ejecutable";
+};
+
+const formatBytes = (value?: number) => {
+  const bytes = Math.max(0, Number(value || 0));
+  if (!bytes) return "0 B";
+
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const normalized = bytes / 1024 ** index;
+  return `${normalized >= 100 ? normalized.toFixed(0) : normalized.toFixed(1)} ${units[index]}`;
+};
+
+const formatRate = (value?: number) => `${formatBytes(value)}/s`;
+
+const findMagnetUri = (uris: string[]) => uris.find((item) => item.startsWith("magnet:?")) || null;
+
+const formatClockDuration = (seconds?: number | null) => {
+  const total = Math.max(0, Math.round(seconds || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const remainder = total % 60;
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}m ${remainder}s`;
+  }
+
+  return `${remainder}s`;
+};
+
+const getTorrentElapsedSeconds = (download: TorrentDownloadRecord, now: number) => {
+  const startedAt = new Date(download.createdAt).getTime();
+  if (Number.isNaN(startedAt)) {
+    return 0;
+  }
+
+  const endAt = download.completedAt ? new Date(download.completedAt).getTime() : now;
+  if (Number.isNaN(endAt)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round((endAt - startedAt) / 1000));
+};
+
+const getTorrentEtaSeconds = (download: TorrentDownloadRecord) => {
+  if (download.status === "completed") {
+    return 0;
+  }
+
+  if (!download.downloadSpeed || download.downloadSpeed <= 0 || !download.totalBytes) {
+    return null;
+  }
+
+  const remainingBytes = Math.max(0, download.totalBytes - download.downloadedBytes);
+  return Math.round(remainingBytes / download.downloadSpeed);
+};
+
+const getTorrentStatusLabel = (download: TorrentDownloadRecord) => {
+  if (download.status === "completed") return "Completada";
+  if (download.status === "canceled") return "Cancelada";
+  if (download.status === "paused") return "Pausada";
+  if (download.status === "error") return "Error";
+  if (!download.totalBytes) return "Obteniendo metadata";
+  if (!download.numPeers) return "Buscando pares";
+  return "Descargando";
 };
 
 function App() {
@@ -256,6 +335,13 @@ function App() {
   const [oauthHelpImageFailed, setOauthHelpImageFailed] = useState<Record<number, boolean>>({});
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatusPayload | null>(null);
+  const [torrentReleaseUrl, setTorrentReleaseUrl] = useState("");
+  const [torrentOutputDir, setTorrentOutputDir] = useState("");
+  const [torrentSources, setTorrentSources] = useState<TorrentReleaseSourceRecord[]>([]);
+  const [selectedTorrentSourceUrl, setSelectedTorrentSourceUrl] = useState<string | null>(null);
+  const [selectedTorrentIndex, setSelectedTorrentIndex] = useState(0);
+  const [torrentDownloads, setTorrentDownloads] = useState<TorrentDownloadRecord[]>([]);
+  const [torrentNotice, setTorrentNotice] = useState<string | null>(null);
   const [startupDismissed, setStartupDismissed] = useState(false);
   const [liveNow, setLiveNow] = useState(() => Date.now());
 
@@ -269,6 +355,8 @@ function App() {
       .then((payload) => {
         if (!mounted) return;
         setBootstrap(payload);
+        setTorrentDownloads(payload.torrentDownloads || []);
+        setTorrentSources(payload.torrentReleaseSources || []);
         setSelectedGameId((current) => current || payload.games[0]?.id || null);
       })
       .catch((error) => {
@@ -281,6 +369,8 @@ function App() {
     });
     const offState = bridge.onStateUpdated((payload) => {
       setBootstrap(payload);
+      setTorrentDownloads(payload.torrentDownloads || []);
+      setTorrentSources(payload.torrentReleaseSources || []);
       setSelectedGameId((current) => {
         if (current && payload.games.some((game) => game.id === current)) return current;
         return payload.games[0]?.id || null;
@@ -289,12 +379,16 @@ function App() {
     const offDiscovery = bridge.onDiscoveryStatus((payload) => {
       setDiscoveryStatus(payload);
     });
+    const offTorrent = bridge.onTorrentUpdated((payload) => {
+      setTorrentDownloads(payload);
+    });
 
     return () => {
       mounted = false;
       offEvents();
       offState();
       offDiscovery();
+      offTorrent();
     };
   }, [bridge]);
 
@@ -317,7 +411,10 @@ function App() {
   }, [bootstrap]);
 
   useEffect(() => {
-    if (!games.some((game) => game.currentlyRunning && game.sessionStartedAt)) {
+    const hasRunningGame = games.some((game) => game.currentlyRunning && game.sessionStartedAt);
+    const hasActiveTorrent = torrentDownloads.some((download) => download.status === "starting" || download.status === "downloading");
+
+    if (!hasRunningGame && !hasActiveTorrent) {
       return;
     }
 
@@ -328,7 +425,7 @@ function App() {
     return () => {
       window.clearInterval(timer);
     };
-  }, [games]);
+  }, [games, torrentDownloads]);
 
   const getEffectivePlaySeconds = (game?: GameRecord | null) => {
     if (!game) return 0;
@@ -366,10 +463,33 @@ function App() {
     }),
     [games, liveNow]
   );
+  const selectedTorrentSource = useMemo(
+    () => torrentSources.find((source) => source.sourceUrl === selectedTorrentSourceUrl) || torrentSources[0] || null,
+    [torrentSources, selectedTorrentSourceUrl]
+  );
+  const selectedTorrentRelease =
+    selectedTorrentSource?.release.downloads[selectedTorrentIndex] || selectedTorrentSource?.release.downloads[0] || null;
+  const selectedTorrentMagnet = selectedTorrentRelease ? findMagnetUri(selectedTorrentRelease.uris) : null;
 
   const showStartupOverlay = Boolean(
     bootstrap?.startup.requiresStorageChoice && !startupDismissed
   );
+
+  useEffect(() => {
+    if (!torrentSources.length) {
+      setSelectedTorrentSourceUrl(null);
+      setSelectedTorrentIndex(0);
+      return;
+    }
+
+    if (!selectedTorrentSourceUrl || !torrentSources.some((source) => source.sourceUrl === selectedTorrentSourceUrl)) {
+      setSelectedTorrentSourceUrl(torrentSources[0].sourceUrl);
+    }
+  }, [selectedTorrentSourceUrl, torrentSources]);
+
+  useEffect(() => {
+    setSelectedTorrentIndex(0);
+  }, [selectedTorrentSource?.sourceUrl]);
 
   if (bridgeError) {
     return (
@@ -517,16 +637,6 @@ function App() {
     }
   };
 
-  const startMonitoring = async () => {
-    if (!bridge) return;
-    setBusyAction("monitor");
-    try {
-      await bridge.startMonitoring();
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
   const connectGoogle = async () => {
     if (!bridge) return;
     setBusyAction("google");
@@ -614,6 +724,224 @@ function App() {
     }
   };
 
+  const chooseTorrentOutputDir = async () => {
+    if (!bridge) return;
+    const directory = await bridge.pickDirectory();
+    if (!directory) return;
+    setTorrentOutputDir(directory);
+  };
+
+  const upsertTorrentSource = (nextSource: TorrentReleaseSourceRecord) => {
+    setTorrentSources((current) => {
+      const withoutExisting = current.filter((source) => source.sourceUrl !== nextSource.sourceUrl);
+      return [nextSource, ...withoutExisting];
+    });
+    setSelectedTorrentSourceUrl(nextSource.sourceUrl);
+    setSelectedTorrentIndex(0);
+  };
+
+  const addTorrentReleaseUrl = async () => {
+    if (!bridge || !torrentReleaseUrl.trim()) {
+      return;
+    }
+
+    setBusyAction("torrent:fetch");
+    try {
+      const source = await bridge.fetchTorrentRelease(torrentReleaseUrl.trim());
+      upsertTorrentSource(source);
+      setTorrentReleaseUrl("");
+      setTorrentNotice(`Fuente cargada: ${source.release.name} desde ${source.sourceUrl}.`);
+    } catch (error) {
+      setTorrentNotice(null);
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: error instanceof Error ? error.message : "No se pudo cargar la URL del release."
+        },
+        ...current
+      ]);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const refreshTorrentSource = async (sourceUrl: string) => {
+    if (!bridge) return;
+    setBusyAction(`torrent:refresh:${sourceUrl}`);
+    try {
+      const source = await bridge.fetchTorrentRelease(sourceUrl);
+      upsertTorrentSource(source);
+      setTorrentNotice(`Fuente actualizada: ${source.release.name}.`);
+    } catch (error) {
+      setTorrentNotice(null);
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: error instanceof Error ? error.message : "No se pudo actualizar la fuente torrent."
+        },
+        ...current
+      ]);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const removeTorrentSource = (sourceUrl: string) => {
+    if (!bridge) return;
+    setBusyAction(`torrent:remove:${sourceUrl}`);
+    void bridge.removeTorrentReleaseSource(sourceUrl)
+      .then(() => {
+        setTorrentNotice(null);
+      })
+      .catch((error) => {
+        setActivity((current) => [
+          {
+            type: "warning",
+            gameId: null,
+            message: error instanceof Error ? error.message : "No se pudo quitar la fuente torrent."
+          },
+          ...current
+        ]);
+      })
+      .finally(() => {
+        setBusyAction(null);
+      });
+  };
+
+  const startSelectedTorrentDownload = async () => {
+    if (!bridge) return;
+
+    if (!selectedTorrentSource || !selectedTorrentRelease) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: "Agrega al menos una URL valida antes de iniciar la descarga."
+        },
+        ...current
+      ]);
+      return;
+    }
+
+    if (!selectedTorrentMagnet) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: "La opcion elegida no contiene un magnet valido."
+        },
+        ...current
+      ]);
+      return;
+    }
+
+    const payload: TorrentDownloadPayload = {
+      sourceName: selectedTorrentSource.release.name,
+      title: selectedTorrentRelease.title,
+      magnetUri: selectedTorrentMagnet,
+      fileSizeLabel: selectedTorrentRelease.fileSize,
+      uploadDate: selectedTorrentRelease.uploadDate,
+      outputDir: torrentOutputDir.trim() || undefined
+    };
+
+    setBusyAction("torrent:start");
+    try {
+      const download = await bridge.startTorrentDownload(payload);
+      setTorrentNotice(`Descarga iniciada en ${download.outputDir}. Usa solo contenido que tengas derecho a distribuir o descargar.`);
+      setTopView("downloads");
+    } catch (error) {
+      setTorrentNotice(null);
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: error instanceof Error ? error.message : "No se pudo iniciar la descarga torrent."
+        },
+        ...current
+      ]);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const openTorrentFolder = async (downloadId: string) => {
+    if (!bridge) return;
+    setBusyAction(`torrent:open:${downloadId}`);
+    try {
+      await bridge.openTorrentFolder(downloadId);
+    } catch (error) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: error instanceof Error ? error.message : "No se pudo abrir la carpeta de la descarga."
+        },
+        ...current
+      ]);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const pauseTorrentDownload = async (downloadId: string) => {
+    if (!bridge) return;
+    setBusyAction(`torrent:pause:${downloadId}`);
+    try {
+      await bridge.pauseTorrentDownload(downloadId);
+    } catch (error) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: error instanceof Error ? error.message : "No se pudo pausar la descarga."
+        },
+        ...current
+      ]);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const resumeTorrentDownload = async (downloadId: string) => {
+    if (!bridge) return;
+    setBusyAction(`torrent:resume:${downloadId}`);
+    try {
+      await bridge.resumeTorrentDownload(downloadId);
+    } catch (error) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: error instanceof Error ? error.message : "No se pudo reanudar la descarga."
+        },
+        ...current
+      ]);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const cancelTorrentDownload = async (downloadId: string) => {
+    if (!bridge) return;
+    setBusyAction(`torrent:cancel:${downloadId}`);
+    try {
+      await bridge.cancelTorrentDownload(downloadId);
+    } catch (error) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: error instanceof Error ? error.message : "No se pudo cancelar la descarga."
+        },
+        ...current
+      ]);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const renderLibraryContent = () => {
     if (!selectedGame) {
       return <p className="muted-copy">Agrega juegos desde Descubrimiento para poblar la biblioteca.</p>;
@@ -622,7 +950,7 @@ function App() {
     if (libraryTab === "summary") {
       return (
         <div className="steam-content-grid">
-          <article className="steam-card steam-feature-card">
+          <article className="steam-card steam-feature-card steam-card-span">
             <h4>Resumen del juego</h4>
             <div className="steam-feature-layout">
               <div className="steam-media-tile">{selectedGame.title.slice(0, 1).toUpperCase()}</div>
@@ -691,7 +1019,6 @@ function App() {
           <article className="steam-card steam-card-span">
             <h4>Acciones de save</h4>
             <div className="steam-actions-row">
-              <button className="secondary-button" onClick={startMonitoring} disabled={busyAction === "monitor"}>Empezar monitoreo</button>
               <button className="secondary-button" onClick={() => void restoreLatest(selectedGame.id)} disabled={!selectedGame.latestRemoteSave || busyAction === `restore:${selectedGame.id}`}>Restaurar ultimo remoto</button>
               <button className="secondary-button" onClick={() => void backupNow(selectedGame.id)} disabled={busyAction === `backup:${selectedGame.id}`}>Respaldar manualmente</button>
             </div>
@@ -936,6 +1263,224 @@ function App() {
       );
     }
 
+    if (topView === "downloads") {
+      return (
+        <>
+          <section className="steam-section-head">
+            <div>
+              <span className="section-kicker">Descargas</span>
+              <h2>Cliente torrent por magnet</h2>
+            </div>
+            <button
+              className="secondary-button"
+              onClick={startSelectedTorrentDownload}
+              disabled={busyAction === "torrent:start" || !selectedTorrentSource || !selectedTorrentMagnet}
+            >
+              {busyAction === "torrent:start" ? "Iniciando..." : "Descargar seleccion"}
+            </button>
+          </section>
+
+          <div className="steam-content-grid torrent-layout">
+            <article className="steam-card torrent-sources-panel">
+              <h4>Fuentes remotas</h4>
+              <div className="steam-form">
+                <label>
+                  <span>URL que devuelve el JSON del release</span>
+                  <div className="field-with-action">
+                    <input
+                      value={torrentReleaseUrl}
+                      onChange={(event) => setTorrentReleaseUrl(event.target.value)}
+                      placeholder="https://sitio.com/release.json"
+                    />
+                    <button
+                      className="mini-button"
+                      type="button"
+                      onClick={addTorrentReleaseUrl}
+                      disabled={busyAction === "torrent:fetch"}
+                    >
+                      Agregar
+                    </button>
+                  </div>
+                </label>
+                <label>
+                  <span>Carpeta de salida opcional</span>
+                  <div className="field-with-action">
+                    <input
+                      value={torrentOutputDir}
+                      onChange={(event) => setTorrentOutputDir(event.target.value)}
+                      placeholder="Si lo dejas vacio, usa Descargas\\SincGames\\Torrents"
+                    />
+                    <button className="mini-button" type="button" onClick={chooseTorrentOutputDir}>
+                      Elegir
+                    </button>
+                  </div>
+                </label>
+                <p className="muted-copy">
+                  Puedes cargar varias URLs. La app toma el primer URI `magnet:?` de la opcion elegida. Usala solo con contenido autorizado.
+                </p>
+                {torrentNotice ? <p className="success-copy">{torrentNotice}</p> : null}
+              </div>
+              <div className="torrent-source-list">
+                {torrentSources.map((source) => (
+                  <article
+                    key={source.sourceUrl}
+                    className={`torrent-source-row ${selectedTorrentSource?.sourceUrl === source.sourceUrl ? "active" : ""}`}
+                  >
+                    <button
+                      className="torrent-source-main"
+                      type="button"
+                      onClick={() => setSelectedTorrentSourceUrl(source.sourceUrl)}
+                    >
+                      <strong>{source.release.name}</strong>
+                      <span>{source.sourceUrl}</span>
+                      <span>{source.release.downloads.length} opciones - actualizado {formatDate(source.fetchedAt)}</span>
+                    </button>
+                    <div className="torrent-source-actions">
+                      <button
+                        className="mini-button"
+                        type="button"
+                        onClick={() => void refreshTorrentSource(source.sourceUrl)}
+                        disabled={busyAction === `torrent:refresh:${source.sourceUrl}`}
+                      >
+                        Recargar
+                      </button>
+                      <button
+                        className="mini-button"
+                        type="button"
+                        onClick={() => removeTorrentSource(source.sourceUrl)}
+                        disabled={busyAction === `torrent:remove:${source.sourceUrl}`}
+                      >
+                        Quitar
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {!torrentSources.length ? <p className="muted-copy">Todavia no agregas URLs de release.</p> : null}
+              </div>
+            </article>
+
+            <article className="steam-card torrent-options-panel">
+              <h4>Opciones encontradas</h4>
+              <div className="torrent-choice-list">
+                {selectedTorrentSource?.release.downloads.map((download, index) => {
+                  const magnetUri = findMagnetUri(download.uris);
+                  return (
+                    <button
+                      key={`${download.title}-${index}`}
+                      className={`torrent-choice ${selectedTorrentIndex === index ? "active" : ""}`}
+                      type="button"
+                      onClick={() => setSelectedTorrentIndex(index)}
+                    >
+                      <strong>{download.title}</strong>
+                      <span>{download.fileSize || "Tamano no informado"}</span>
+                      <span>{download.uploadDate ? formatDate(download.uploadDate) : "Fecha no informada"}</span>
+                      <span>{magnetUri ? "Magnet detectado" : "Sin magnet valido"}</span>
+                    </button>
+                  );
+                })}
+                {!selectedTorrentSource?.release.downloads.length ? (
+                  <p className="muted-copy">Selecciona una URL cargada para ver sus opciones.</p>
+                ) : null}
+              </div>
+            </article>
+
+            <article className="steam-card torrent-progress-panel">
+              <h4>Descargas en curso</h4>
+              <div className="steam-feed">
+                {torrentDownloads.map((download) => (
+                  <article className={`steam-feed-item tone-${download.status === "error" ? "warning" : download.status === "completed" ? "success" : "info"} torrent-download-card`} key={download.id}>
+                    <div className="torrent-entry-head">
+                      <div>
+                        <span>{download.sourceName}</span>
+                        <p>{download.title}</p>
+                      </div>
+                      <strong className={`torrent-status-pill is-${download.status}`}>{getTorrentStatusLabel(download)}</strong>
+                    </div>
+                    <div className="torrent-progress">
+                      <div className="torrent-progress-bar">
+                        <span style={{ width: `${Math.max(0, Math.min(100, Math.round(download.progress * 100)))}%` }} />
+                      </div>
+                      <strong>{Math.round(download.progress * 100)}%</strong>
+                    </div>
+                    <div className="torrent-progress-summary">
+                      <strong>{formatBytes(download.downloadedBytes)} de {download.totalBytes ? formatBytes(download.totalBytes) : download.fileSizeLabel || "tamano pendiente"}</strong>
+                      <span>
+                        {download.status === "completed"
+                          ? "Finalizada"
+                          : download.status === "canceled"
+                            ? "Descarga cancelada"
+                          : download.status === "paused"
+                            ? "Descarga en pausa"
+                            : `Velocidad actual ${formatRate(download.downloadSpeed)}`}
+                      </span>
+                    </div>
+                    <div className="torrent-meta-grid">
+                      <div><span>Descargado</span><strong>{formatBytes(download.downloadedBytes)}</strong></div>
+                      <div><span>Total</span><strong>{download.totalBytes ? formatBytes(download.totalBytes) : download.fileSizeLabel || "Pendiente"}</strong></div>
+                      <div><span>Velocidad</span><strong>{download.status === "completed" || download.status === "canceled" ? "0 B/s" : formatRate(download.downloadSpeed)}</strong></div>
+                      <div><span>Pares</span><strong>{download.numPeers}</strong></div>
+                      <div><span>Tiempo transcurrido</span><strong>{formatClockDuration(getTorrentElapsedSeconds(download, liveNow))}</strong></div>
+                      <div><span>Tiempo restante</span><strong>{getTorrentEtaSeconds(download) === null ? "Calculando" : formatClockDuration(getTorrentEtaSeconds(download))}</strong></div>
+                      <div><span>Inicio</span><strong>{formatDate(download.createdAt)}</strong></div>
+                      <div><span>Destino</span><strong>{download.outputDir}</strong></div>
+                    </div>
+                    {download.infoHash ? (
+                      <div className="torrent-inline-note">
+                        <span>Info hash</span>
+                        <strong>{download.infoHash}</strong>
+                      </div>
+                    ) : null}
+                    {download.errorMessage ? <p className="muted-copy">{download.errorMessage}</p> : null}
+                    {download.warningMessage ? <p className="muted-copy">{download.warningMessage}</p> : null}
+                    <div className="steam-actions-row">
+                      {download.status === "paused" ? (
+                        <button
+                          className="mini-button"
+                          type="button"
+                          onClick={() => void resumeTorrentDownload(download.id)}
+                          disabled={busyAction === `torrent:resume:${download.id}`}
+                        >
+                          Reanudar
+                        </button>
+                      ) : download.status !== "completed" && download.status !== "error" && download.status !== "canceled" ? (
+                        <button
+                          className="mini-button"
+                          type="button"
+                          onClick={() => void pauseTorrentDownload(download.id)}
+                          disabled={busyAction === `torrent:pause:${download.id}`}
+                        >
+                          Pausar
+                        </button>
+                      ) : null}
+                      {download.status !== "completed" && download.status !== "canceled" ? (
+                        <button
+                          className="mini-button"
+                          type="button"
+                          onClick={() => void cancelTorrentDownload(download.id)}
+                          disabled={busyAction === `torrent:cancel:${download.id}`}
+                        >
+                          Cancelar
+                        </button>
+                      ) : null}
+                      <button
+                        className="mini-button"
+                        type="button"
+                        onClick={() => void openTorrentFolder(download.id)}
+                        disabled={busyAction === `torrent:open:${download.id}`}
+                      >
+                        Abrir carpeta
+                      </button>
+                    </div>
+                  </article>
+                ))}
+                {!torrentDownloads.length ? <p className="muted-copy">Aun no hay descargas iniciadas.</p> : null}
+              </div>
+            </article>
+          </div>
+        </>
+      );
+    }
+
     if (topView === "activity") {
       return (
         <>
@@ -964,13 +1509,20 @@ function App() {
       <>
         <section className="game-hero">
           <div className="game-hero-backdrop" />
+          <div className="game-hero-orbit" />
           <div className="game-hero-content">
             <div className="game-hero-copy">
-              <span className="section-kicker">Biblioteca</span>
+              <span className="section-kicker">En biblioteca</span>
               <h2>{selectedGame?.title || "Sin seleccion"}</h2>
-              <p>{selectedGame ? `${selectedGame.processName} - doble click en la lista izquierda para iniciar.` : "Selecciona un juego para ver detalle."}</p>
+              <p>{selectedGame ? `${selectedGame.processName} · doble click en la lista izquierda para iniciar.` : "Selecciona un juego para ver detalle."}</p>
+              <div className="game-hero-tags">
+                <span>{selectedGame?.launchType?.toUpperCase() || "EXE"}</span>
+                <span>{selectedGame?.installed ? "INSTALADO" : "NO INSTALADO"}</span>
+                <span>{selectedGame?.latestRemoteSave ? "CLOUD READY" : "LOCAL ONLY"}</span>
+              </div>
             </div>
             <div className="game-hero-metrics">
+              <div><span>Proceso</span><strong>{selectedGame?.processName || "Sin proceso"}</strong></div>
               <div><span>Ultima sesion</span><strong>{formatDate(selectedGame?.lastPlayedAt)}</strong></div>
               <div><span>Tiempo jugado</span><strong>{formatDuration(getEffectivePlaySeconds(selectedGame))}</strong></div>
               <div><span>Estado cloud</span><strong>{selectedGame?.latestRemoteSave ? "Actualizado" : "Pendiente"}</strong></div>
@@ -978,7 +1530,7 @@ function App() {
           </div>
         </section>
 
-        <section className="steam-action-bar">
+        <section className="steam-action-bar game-command-strip">
           <button className="play-button" onClick={() => selectedGame && void launchGame(selectedGame.id)} disabled={!selectedGame || busyAction === `launch:${selectedGame?.id}`}>
             JUGAR
           </button>
@@ -999,7 +1551,7 @@ function App() {
           </div>
         </section>
 
-        <section className="steam-subnav">
+        <section className="steam-subnav game-page-tabs">
           {[
             { id: "summary", label: "Resumen" },
             { id: "saves", label: "Saves" },
@@ -1020,37 +1572,45 @@ function App() {
   return (
     <main className="steam-shell">
       <header className="steam-topbar">
-        <div className="steam-brand">
-          <strong>{bootstrap?.env.appName || "SincGames"}</strong>
-          <span>Launcher + Save Sync</span>
-        </div>
-        <nav className="steam-topnav">
-          {[
-            { id: "library", label: "BIBLIOTECA" },
-            { id: "discovery", label: "DESCUBRIMIENTO" },
-            { id: "cloud", label: "NUBE" },
-            { id: "activity", label: "ACTIVIDAD" }
-          ].map((item) => (
-            <button key={item.id} className={`steam-topnav-item ${topView === item.id ? "active" : ""}`} onClick={() => setTopView(item.id as TopView)}>
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <div className="steam-topbar-status">
-          <span>{bootstrap?.capabilities.googleAuthenticated ? "Drive conectado" : "Drive pendiente"}</span>
-          <button className="tiny-button" onClick={connectGoogle}>Cuenta</button>
+        <div className="steam-topbar-content">
+          <div className="steam-brand">
+            <strong>{bootstrap?.env.appName || "SincGames"}</strong>
+            <span>Launcher + Save Sync</span>
+          </div>
+          <nav className="steam-topnav">
+            {[
+              { id: "library", label: "Biblioteca" },
+              { id: "discovery", label: "Descubrimiento" },
+              { id: "downloads", label: "Descargas" },
+              { id: "cloud", label: "Nube" },
+              { id: "activity", label: "Actividad" }
+            ].map((item) => (
+              <button key={item.id} className={`steam-topnav-item ${topView === item.id ? "active" : ""}`} onClick={() => setTopView(item.id as TopView)}>
+                {item.label}
+              </button>
+            ))}
+          </nav>
+          <div className="steam-topbar-status">
+            <span>{bootstrap?.capabilities.googleAuthenticated ? "Drive conectado" : "Drive pendiente"}</span>
+            <button className="tiny-button" onClick={connectGoogle}>Cuenta</button>
+          </div>
         </div>
       </header>
 
       <section className="steam-body">
         <aside className="steam-sidebar">
           <div className="steam-sidebar-top">
+            <div className="steam-sidebar-head">
+              <strong>Pagina principal</strong>
+              <span>{totals.games} juegos y software</span>
+            </div>
             <div className="steam-sidebar-filter">
               <input value={libraryFilter} onChange={(e) => setLibraryFilter(e.target.value)} placeholder="Buscar en biblioteca" />
             </div>
             <div className="steam-sidebar-links">
               <button className={`steam-mini-nav ${topView === "library" ? "active" : ""}`} onClick={() => setTopView("library")}>Juegos</button>
               <button className={`steam-mini-nav ${topView === "discovery" ? "active" : ""}`} onClick={() => setTopView("discovery")}>Escaneo</button>
+              <button className={`steam-mini-nav ${topView === "downloads" ? "active" : ""}`} onClick={() => setTopView("downloads")}>Torrents</button>
             </div>
           </div>
 
@@ -1076,7 +1636,6 @@ function App() {
           </div>
 
           <div className="steam-sidebar-footer">
-            <button className="secondary-button" onClick={startMonitoring} disabled={busyAction === "monitor"}>Empezar monitoreo</button>
             <div className="sidebar-footer-stats">
               <span>{totals.games} juegos</span>
               <span>{totals.remote} backups remotos</span>
@@ -1087,7 +1646,7 @@ function App() {
         <section className="steam-main">{renderMainPanel()}</section>
 
         <aside className="steam-rail">
-          <article className="steam-card">
+          <article className="steam-card steam-rail-card">
             <h4>Estado del sistema</h4>
             <div className="steam-stat-list">
               <div><span>Google Drive</span><strong>{bootstrap?.capabilities.googleAuthenticated ? "Conectado" : "Pendiente"}</strong></div>
@@ -1097,7 +1656,7 @@ function App() {
             </div>
           </article>
 
-          <article className="steam-card">
+          <article className="steam-card steam-rail-card">
             <h4>Juego seleccionado</h4>
             {selectedGame ? (
               <div className="steam-stat-list">
@@ -1110,7 +1669,7 @@ function App() {
             )}
           </article>
 
-          <article className="steam-card">
+          <article className="steam-card steam-rail-card">
             <h4>Resumen general</h4>
             <div className="steam-stat-list">
               <div><span>Juegos</span><strong>{totals.games}</strong></div>

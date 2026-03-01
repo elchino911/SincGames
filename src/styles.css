@@ -1,10 +1,13 @@
-@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Barlow:wght@400;500;600;700&display=swap");
 
 :root {
   color-scheme: dark;
-  font-family: "Source Sans 3", sans-serif;
+  font-family: "Barlow", sans-serif;
   color: #c7d5e0;
-  background: radial-gradient(circle at top, rgba(26, 77, 122, 0.2), transparent 28%), linear-gradient(180deg, #0b1118 0%, #101822 48%, #0a1016 100%);
+  background:
+    radial-gradient(circle at 12% 20%, rgba(83, 144, 214, 0.14), transparent 24%),
+    radial-gradient(circle at 88% 12%, rgba(27, 154, 189, 0.12), transparent 22%),
+    linear-gradient(180deg, #111822 0%, #0d141d 46%, #0a1017 100%);
 }
 
 * {
@@ -25,7 +28,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -34,7 +38,8 @@ button {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   border: 1px solid rgba(103, 137, 164, 0.26);
   border-radius: 4px;
@@ -44,7 +49,8 @@ select {
 }
 
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   outline: 1px solid rgba(102, 192, 244, 0.5);
   border-color: rgba(102, 192, 244, 0.5);
 }
@@ -305,42 +311,65 @@ select:focus {
 .steam-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-rows: 58px 1fr;
+  grid-template-rows: auto 1fr;
   background:
-    linear-gradient(180deg, rgba(6, 10, 15, 0.98), rgba(7, 12, 18, 0.9)),
-    linear-gradient(180deg, #101822 0%, #111b26 100%);
+    linear-gradient(180deg, rgba(6, 10, 15, 0.98), rgba(7, 12, 18, 0.92)),
+    linear-gradient(180deg, #101823 0%, #0e1620 100%);
 }
 
 .steam-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: block;
+  background: linear-gradient(180deg, #1a2431 0%, #18202d 100%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.32);
+}
+
+.steam-topbar-content {
   display: grid;
-  grid-template-columns: 220px 1fr auto;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 1rem;
-  padding: 0 1rem;
-  background: linear-gradient(180deg, #1a2634 0%, #171f2c 100%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  min-height: 68px;
+  padding: 0.7rem 1rem;
+  background: linear-gradient(180deg, #213246 0%, #182434 100%);
 }
 
 .steam-brand {
   display: grid;
-  gap: 0.1rem;
+  gap: 0.05rem;
 }
 
 .steam-brand strong {
   font-family: "Rajdhani", sans-serif;
-  font-size: 1.2rem;
-  letter-spacing: 0.04em;
+  font-size: 1.15rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.steam-brand span,
+.steam-brand span {
+  font-size: 0.72rem;
+  color: rgba(199, 213, 224, 0.54);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .steam-topbar-status span {
   font-size: 0.82rem;
-  color: rgba(199, 213, 224, 0.7);
+  color: rgba(199, 213, 224, 0.76);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .steam-topnav {
   display: flex;
-  gap: 0.2rem;
+  gap: 0.35rem;
+  justify-content: center;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 0.1rem;
 }
 
 .steam-topnav-item,
@@ -353,28 +382,31 @@ select:focus {
 }
 
 .steam-topnav-item {
-  padding: 0.8rem 0.9rem;
+  padding: 0.85rem 0.9rem 0.75rem;
   font-family: "Rajdhani", sans-serif;
-  font-size: 1.05rem;
+  font-size: 1.02rem;
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .steam-topnav-item.active {
   color: #ffffff;
-  background: linear-gradient(180deg, rgba(79, 152, 204, 0.16), rgba(79, 152, 204, 0));
+  background: linear-gradient(180deg, rgba(96, 183, 255, 0.16), rgba(96, 183, 255, 0.02));
+  box-shadow: inset 0 -2px 0 #58a7df;
 }
 
 .steam-topbar-status {
   display: flex;
   align-items: center;
   gap: 0.7rem;
+  justify-content: flex-end;
 }
 
 .tiny-button {
-  padding: 0.45rem 0.75rem;
-  border-radius: 3px;
-  background: rgba(102, 192, 244, 0.16);
+  padding: 0.45rem 0.8rem;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #2e75b7, #1f5788);
   color: #dff4ff;
 }
 
@@ -388,13 +420,34 @@ select:focus {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-height: 0;
-  background: linear-gradient(180deg, rgba(22, 31, 43, 0.98), rgba(16, 23, 32, 0.98));
-  border-right: 1px solid rgba(255, 255, 255, 0.04);
+  background: linear-gradient(180deg, rgba(23, 30, 40, 0.98), rgba(16, 21, 29, 0.98));
+  border-right: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .steam-sidebar-top,
 .steam-sidebar-footer {
   padding: 0.9rem;
+}
+
+.steam-sidebar-head {
+  display: grid;
+  gap: 0.18rem;
+  margin-bottom: 0.7rem;
+}
+
+.steam-sidebar-head strong {
+  font-family: "Rajdhani", sans-serif;
+  font-size: 1.02rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #f0f7fb;
+}
+
+.steam-sidebar-head span {
+  font-size: 0.76rem;
+  color: rgba(199, 213, 224, 0.55);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .steam-sidebar-links {
@@ -405,13 +458,17 @@ select:focus {
 
 .steam-mini-nav {
   padding: 0.45rem 0.7rem;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.03);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.035);
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
 }
 
 .steam-mini-nav.active {
   color: #fff;
-  background: rgba(102, 192, 244, 0.15);
+  background: linear-gradient(180deg, rgba(59, 121, 177, 0.28), rgba(48, 94, 138, 0.18));
 }
 
 .steam-library-list {
@@ -426,19 +483,21 @@ select:focus {
   gap: 0.7rem;
   align-items: center;
   width: 100%;
-  padding: 0.45rem 0.6rem;
+  padding: 0.38rem 0.55rem;
   border: none;
   background: transparent;
   text-align: left;
   color: #c7d5e0;
+  border-left: 2px solid transparent;
 }
 
 .steam-library-row:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .steam-library-row.active {
-  background: linear-gradient(90deg, rgba(102, 192, 244, 0.26), rgba(102, 192, 244, 0.02));
+  border-left-color: #5fb2f5;
+  background: linear-gradient(90deg, rgba(95, 178, 245, 0.22), rgba(95, 178, 245, 0.03));
 }
 
 .steam-library-icon {
@@ -446,10 +505,11 @@ select:focus {
   place-items: center;
   width: 34px;
   height: 34px;
-  border-radius: 4px;
-  background: linear-gradient(135deg, #66c0f4, #355e7d);
-  color: #031018;
+  border-radius: 2px;
+  background: linear-gradient(135deg, #28445f, #121c27);
+  color: #8fd3ff;
   font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .steam-library-copy {
@@ -486,10 +546,11 @@ select:focus {
 .steam-main {
   min-height: 0;
   overflow: auto;
-  padding: 1rem;
+  padding: 1rem 1rem 1.4rem;
   display: grid;
   align-content: start;
-  gap: 1rem;
+  gap: 0.85rem;
+  min-width: 0;
 }
 
 .steam-rail {
@@ -498,30 +559,49 @@ select:focus {
   padding: 1rem 1rem 1rem 0;
   display: grid;
   align-content: start;
-  gap: 1rem;
+  gap: 0.85rem;
+  min-width: 0;
 }
 
 .game-hero {
   position: relative;
-  min-height: 240px;
-  border-radius: 6px;
+  min-height: 330px;
+  border-radius: 2px;
   overflow: hidden;
-  background: linear-gradient(120deg, rgba(33, 82, 121, 0.8), rgba(12, 22, 32, 0.95) 60%), radial-gradient(circle at 75% 25%, rgba(102, 192, 244, 0.4), transparent 20%);
+  background:
+    linear-gradient(180deg, rgba(6, 13, 19, 0.06), rgba(6, 13, 19, 0.78)),
+    radial-gradient(circle at 55% 24%, rgba(127, 233, 255, 0.4), transparent 16%),
+    radial-gradient(circle at 16% 72%, rgba(229, 120, 171, 0.28), transparent 22%),
+    linear-gradient(115deg, #264f63 0%, #2e7e99 28%, #67adb2 44%, #d99c90 72%, #5f465c 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
 }
 
 .game-hero-backdrop {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 45%),
-    radial-gradient(circle at 20% 30%, rgba(255, 122, 122, 0.22), transparent 24%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 42%),
+    radial-gradient(circle at 52% 30%, rgba(222, 255, 255, 0.22), transparent 18%);
+}
+
+.game-hero-orbit {
+  position: absolute;
+  top: 18px;
+  right: 25%;
+  width: 260px;
+  height: 260px;
+  border-radius: 999px;
+  border: 2px solid rgba(214, 255, 255, 0.28);
+  box-shadow: 0 0 0 12px rgba(190, 250, 255, 0.05), 0 0 80px rgba(99, 190, 205, 0.15);
+  opacity: 0.9;
 }
 
 .game-hero-content {
   position: relative;
   z-index: 1;
   height: 100%;
-  padding: 1.4rem;
+  padding: 1.5rem 1.55rem;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
   align-items: end;
@@ -530,25 +610,45 @@ select:focus {
 
 .game-hero-copy h2,
 .steam-section-head h2 {
-  margin: 0.2rem 0 0.45rem;
+  margin: 0.25rem 0 0.45rem;
   font-family: "Rajdhani", sans-serif;
-  font-size: clamp(2rem, 3vw, 3.25rem);
+  font-size: clamp(2.5rem, 4vw, 4.25rem);
   font-weight: 700;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
 .game-hero-copy p {
   margin: 0;
   max-width: 58ch;
-  color: rgba(222, 239, 248, 0.82);
+  color: rgba(239, 247, 251, 0.82);
+  font-size: 1rem;
+}
+
+.game-hero-tags {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.game-hero-tags span {
+  padding: 0.3rem 0.48rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(13, 22, 29, 0.38);
+  font-size: 0.73rem;
+  color: #ecf6fb;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .game-hero-metrics {
   display: grid;
   gap: 0.55rem;
   padding: 1rem;
-  background: rgba(6, 12, 18, 0.46);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(180deg, rgba(14, 22, 30, 0.76), rgba(14, 22, 30, 0.52));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px);
 }
 
 .game-hero-metrics div,
@@ -556,6 +656,7 @@ select:focus {
 .steam-path-list div {
   display: grid;
   gap: 0.15rem;
+  min-width: 0;
 }
 
 .game-hero-metrics span,
@@ -575,6 +676,8 @@ select:focus {
 .action-status strong {
   font-size: 0.98rem;
   color: #ecf4f8;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .steam-action-bar {
@@ -582,8 +685,9 @@ select:focus {
   grid-template-columns: auto auto repeat(3, minmax(140px, 1fr));
   gap: 0.5rem;
   padding: 0.7rem;
-  border-radius: 4px;
-  background: linear-gradient(180deg, rgba(37, 49, 66, 0.94), rgba(29, 39, 53, 0.96));
+  border-radius: 2px;
+  background: linear-gradient(180deg, rgba(39, 49, 60, 0.96), rgba(33, 42, 53, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .play-button,
@@ -597,22 +701,24 @@ select:focus {
   min-width: 148px;
   padding: 0.9rem 1.2rem;
   font-family: "Rajdhani", sans-serif;
-  font-size: 1.35rem;
+  font-size: 1.28rem;
   font-weight: 700;
-  letter-spacing: 0.05em;
-  background: linear-gradient(180deg, #84c94f, #4a8b2c);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, #1f7be7, #155fb5);
   color: #f4fff0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
 .secondary-button {
   padding: 0.72rem 0.95rem;
-  background: linear-gradient(180deg, #36536a, #24384b);
+  background: linear-gradient(180deg, #3c5366, #2a3948);
   color: #d7ecf8;
 }
 
 .mini-button {
   padding: 0.52rem 0.74rem;
-  background: rgba(102, 192, 244, 0.14);
+  background: linear-gradient(180deg, rgba(63, 93, 117, 0.92), rgba(40, 56, 69, 0.96));
   color: #dff4ff;
 }
 
@@ -627,18 +733,23 @@ select:focus {
 .steam-subnav {
   display: flex;
   gap: 0.2rem;
-  padding: 0.25rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0.2rem 0 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .steam-subnav-item {
-  padding: 0.8rem 1rem;
-  font-size: 0.92rem;
+  padding: 0.82rem 1rem;
+  font-size: 0.88rem;
+  font-family: "Rajdhani", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .steam-subnav-item.active {
   color: #fff;
-  background: linear-gradient(180deg, rgba(102, 192, 244, 0.18), rgba(102, 192, 244, 0));
+  background: linear-gradient(180deg, rgba(88, 167, 223, 0.16), rgba(88, 167, 223, 0.02));
+  box-shadow: inset 0 -2px 0 #58a7df;
 }
 
 .steam-section-head {
@@ -662,12 +773,18 @@ select:focus {
   grid-template-columns: 0.9fr 1.1fr 0.95fr;
 }
 
+.torrent-layout {
+  grid-template-columns: minmax(320px, 0.95fr) minmax(320px, 1fr) minmax(320px, 0.9fr);
+  align-items: start;
+}
+
 .steam-card {
   padding: 1rem;
-  border-radius: 4px;
-  background: linear-gradient(180deg, rgba(26, 39, 53, 0.94), rgba(19, 29, 39, 0.96));
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  border-radius: 2px;
+  background:
+    linear-gradient(180deg, rgba(34, 45, 58, 0.94), rgba(26, 34, 44, 0.98));
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02), 0 6px 14px rgba(0, 0, 0, 0.12);
 }
 
 .steam-card h4 {
@@ -683,24 +800,29 @@ select:focus {
 
 .steam-feature-layout {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
   gap: 1rem;
+  align-items: start;
 }
 
 .steam-media-tile {
-  min-height: 180px;
+  min-height: 150px;
   display: grid;
   place-items: center;
-  background: linear-gradient(135deg, rgba(102, 192, 244, 0.82), rgba(34, 68, 96, 0.92));
+  background:
+    radial-gradient(circle at 65% 28%, rgba(182, 255, 255, 0.22), transparent 18%),
+    linear-gradient(135deg, rgba(63, 141, 194, 0.92), rgba(26, 52, 79, 0.96));
   font-family: "Rajdhani", sans-serif;
-  font-size: 4rem;
-  color: #071018;
+  font-size: 3.2rem;
+  color: rgba(255, 255, 255, 0.88);
+  letter-spacing: 0.12em;
 }
 
 .steam-feature-copy {
   display: grid;
   align-content: start;
   gap: 0.9rem;
+  min-width: 0;
 }
 
 .steam-feature-copy p,
@@ -709,10 +831,20 @@ select:focus {
   line-height: 1.45;
 }
 
+.steam-feature-copy p {
+  overflow-wrap: anywhere;
+}
+
 .steam-actions-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 0.7rem;
-  flex-wrap: wrap;
+}
+
+.steam-feature-card .play-button,
+.steam-feature-card .secondary-button {
+  width: 100%;
+  min-width: 0;
 }
 
 .steam-stat-list,
@@ -729,8 +861,16 @@ select:focus {
   display: grid;
   gap: 0.3rem;
   padding: 0.8rem;
-  background: rgba(8, 14, 20, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(8, 14, 20, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  min-width: 0;
+}
+
+.steam-rail-card h4 {
+  color: #9ba7b3;
+  font-size: 0.92rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .steam-feed-item small {
@@ -769,6 +909,217 @@ select:focus {
   gap: 0.5rem;
 }
 
+.torrent-choice-list,
+.torrent-meta-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.torrent-choice-list {
+  max-height: 760px;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.torrent-source-list {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.torrent-sources-panel,
+.torrent-options-panel,
+.torrent-progress-panel {
+  min-height: 0;
+}
+
+.torrent-progress-panel {
+  position: sticky;
+  top: 1rem;
+}
+
+.torrent-progress-panel .steam-feed {
+  max-height: 760px;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.torrent-source-row {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(8, 14, 20, 0.22);
+}
+
+.torrent-source-row.active {
+  border-color: rgba(102, 192, 244, 0.35);
+  background: linear-gradient(180deg, rgba(102, 192, 244, 0.12), rgba(8, 14, 20, 0.28));
+}
+
+.torrent-source-main {
+  display: grid;
+  gap: 0.2rem;
+  width: 100%;
+  border: none;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.torrent-source-main strong {
+  color: #eef7fb;
+  font-size: 0.98rem;
+}
+
+.torrent-source-main span {
+  color: rgba(199, 213, 224, 0.68);
+  font-size: 0.84rem;
+  overflow-wrap: anywhere;
+}
+
+.torrent-source-actions {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.torrent-choice {
+  width: 100%;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  background: rgba(8, 14, 20, 0.26);
+  text-align: left;
+  color: #dce8ef;
+}
+
+.torrent-choice.active {
+  border-color: rgba(102, 192, 244, 0.35);
+  background: linear-gradient(180deg, rgba(102, 192, 244, 0.16), rgba(8, 14, 20, 0.3));
+}
+
+.torrent-choice strong,
+.torrent-entry-head p {
+  margin: 0;
+  font-size: 1rem;
+  color: #eef7fb;
+}
+
+.torrent-choice span {
+  font-size: 0.84rem;
+  color: rgba(199, 213, 224, 0.68);
+}
+
+.torrent-entry-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.torrent-status-pill {
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.torrent-status-pill.is-starting,
+.torrent-status-pill.is-downloading {
+  background: rgba(102, 192, 244, 0.16);
+  color: #cfefff;
+}
+
+.torrent-status-pill.is-paused {
+  background: rgba(214, 161, 61, 0.14);
+  color: #f0d08a;
+}
+
+.torrent-status-pill.is-canceled {
+  background: rgba(151, 163, 175, 0.16);
+  color: #d7dce2;
+}
+
+.torrent-status-pill.is-completed {
+  background: rgba(132, 201, 79, 0.14);
+  color: #c8efad;
+}
+
+.torrent-status-pill.is-error {
+  background: rgba(214, 161, 61, 0.14);
+  color: #f0d08a;
+}
+
+.torrent-progress {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.7rem;
+  align-items: center;
+}
+
+.torrent-download-card {
+  gap: 0.75rem;
+}
+
+.torrent-progress-bar {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.torrent-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #66c0f4, #84c94f);
+}
+
+.torrent-progress-summary,
+.torrent-inline-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.torrent-progress-summary strong,
+.torrent-inline-note strong {
+  color: #eef7fb;
+}
+
+.torrent-progress-summary span,
+.torrent-inline-note span {
+  font-size: 0.82rem;
+  color: rgba(199, 213, 224, 0.66);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.torrent-inline-note {
+  padding: 0.65rem 0.8rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.torrent-inline-note strong {
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.torrent-meta-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .tone-info {
   border-left: 3px solid #66c0f4;
 }
@@ -800,28 +1151,32 @@ select:focus {
   .discovery-layout > :last-child {
     grid-column: 1 / -1;
   }
-}
 
-@media (max-width: 1120px) {
-  .steam-shell {
-    grid-template-rows: auto 1fr;
-  }
-
-  .steam-topbar,
-  .steam-body,
-  .steam-content-grid,
-  .steam-feature-layout,
-  .game-hero-content,
-  .steam-action-bar {
+  .torrent-layout {
     grid-template-columns: 1fr;
   }
 
-  .steam-topbar {
-    padding: 0.9rem;
+  .torrent-progress-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 1280px) {
+  .game-hero-content,
+  .steam-action-bar,
+  .steam-content-grid,
+  .steam-feature-layout {
+    grid-template-columns: 1fr;
   }
 
-  .steam-topnav {
-    flex-wrap: wrap;
+  .game-hero {
+    min-height: 280px;
+  }
+
+  .game-hero-orbit {
+    right: 8%;
+    width: 180px;
+    height: 180px;
   }
 
   .steam-body {
@@ -834,14 +1189,65 @@ select:focus {
     padding: 0;
   }
 
+  .steam-sidebar {
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .steam-sidebar-top,
+  .steam-sidebar-footer,
   .steam-main,
   .steam-rail {
     padding: 1rem;
   }
 
+  .steam-library-list {
+    max-height: 320px;
+    padding: 0.25rem 1rem 0.8rem;
+  }
+
+  .steam-sidebar-footer {
+    border-top: 1px solid rgba(255, 255, 255, 0.04);
+  }
+
   .steam-rail {
     grid-column: auto;
     padding-top: 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1120px) {
+  .steam-shell {
+    grid-template-rows: auto 1fr;
+  }
+
+  .steam-topbar-content,
+  .steam-body,
+  .steam-content-grid,
+  .steam-feature-layout,
+  .game-hero-content,
+  .steam-action-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .steam-topbar-content {
+    padding: 0.9rem;
+  }
+
+  .steam-topnav {
+    justify-content: flex-start;
+  }
+
+  .steam-body {
+    grid-template-columns: 1fr;
+  }
+
+  .steam-topbar-status {
+    justify-content: flex-start;
+  }
+
+  .steam-rail {
     grid-template-columns: 1fr;
   }
 }
@@ -871,5 +1277,13 @@ select:focus {
   .steam-actions-row,
   .steam-sidebar-links {
     flex-wrap: wrap;
+  }
+
+  .torrent-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .steam-actions-row {
+    grid-template-columns: 1fr;
   }
 }

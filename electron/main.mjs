@@ -13,6 +13,7 @@ import { SaveSyncService } from "./services/save-sync.mjs";
 import { StateStore } from "./services/state-store.mjs";
 import { RestoreService } from "./services/restore-service.mjs";
 import { getProcessState, isProcessRunning } from "./services/system.mjs";
+import { TorrentService } from "./services/torrent-service.mjs";
 
 const { autoUpdater } = electronUpdater;
 
@@ -91,6 +92,7 @@ let mainWindow = null;
 let discoveryWorker = null;
 let sessionPollTimer = null;
 let isQuitting = false;
+let shouldInstallUpdateOnQuit = false;
 const runtime = {
   monitoringStarted: false,
   discoveryRunning: false,
@@ -101,6 +103,7 @@ let state = {
   scanRoots: [],
   discoveryCandidates: [],
   games: [],
+  torrentReleaseSources: [],
   manifestInfo: null,
   lastCloudSyncAt: null,
   offlineBackupDir: null,
@@ -118,6 +121,13 @@ const syncService = new SaveSyncService({
   env,
   emit: emitToRenderer,
   onSnapshot: handleSnapshotCaptured
+});
+const torrentService = new TorrentService({
+  app,
+  env,
+  emit: (downloads) => {
+    emitToRenderer("torrent:updated", downloads);
+  }
 });
 
 driveService.setTokenPersistence(async (tokens) => {
@@ -179,7 +189,7 @@ function configureAutoUpdater() {
   }
 
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoInstallOnAppQuit = false;
 
   autoUpdater.on("checking-for-update", () => {
     runtime.updateState = "checking";
@@ -200,12 +210,14 @@ function configureAutoUpdater() {
   });
 
   autoUpdater.on("update-downloaded", (info) => {
+    shouldInstallUpdateOnQuit = true;
     runtime.updateState = "ready";
     emitInfo(`Actualizacion ${info.version} descargada. Se instalara al cerrar la app.`);
     void emitBootstrap();
   });
 
   autoUpdater.on("error", (error) => {
+    shouldInstallUpdateOnQuit = false;
     runtime.updateState = "error";
     emitWarning(`Error al buscar actualizaciones: ${error.message}`);
     void emitBootstrap();
@@ -237,6 +249,7 @@ function getBootstrapPayload(gitReady) {
     },
     scanRoots: state.scanRoots,
     discoveryCandidates: state.discoveryCandidates,
+    torrentReleaseSources: state.torrentReleaseSources,
     manifestInfo: state.manifestInfo,
     games: state.games,
     startup: {
@@ -247,12 +260,18 @@ function getBootstrapPayload(gitReady) {
       accentSoft: "#d59a7e",
       surface: "#0d141c",
       ink: "#d9e3ef"
-    }
+    },
+    torrentDownloads: torrentService.listDownloads()
   };
 }
 
 async function emitBootstrap() {
   emitToRenderer("state:updated", getBootstrapPayload(await detectGitStatus()));
+}
+
+async function persistLocalState() {
+  await stateStore.save(state);
+  await emitBootstrap();
 }
 
 async function persistState({ syncCloud = false } = {}) {
@@ -753,6 +772,75 @@ function resolveLaunchConfiguration(game) {
   };
 }
 
+function normalizeTorrentReleasePayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("La respuesta no contiene un objeto JSON valido.");
+  }
+
+  const name = typeof payload.name === "string" && payload.name.trim() ? payload.name.trim() : "release";
+  const downloads = Array.isArray(payload.downloads)
+    ? payload.downloads
+        .map((entry, index) => ({
+          title:
+            typeof entry?.title === "string" && entry.title.trim()
+              ? entry.title.trim()
+              : `Opcion ${index + 1}`,
+          fileSize: typeof entry?.fileSize === "string" ? entry.fileSize : null,
+          uploadDate: typeof entry?.uploadDate === "string" ? entry.uploadDate : null,
+          uris: Array.isArray(entry?.uris)
+            ? entry.uris.filter((uri) => typeof uri === "string" && uri.trim().length > 0)
+            : []
+        }))
+        .filter((entry) => entry.uris.length > 0)
+    : [];
+
+  if (!downloads.length) {
+    throw new Error("El JSON no contiene descargas validas con URIs.");
+  }
+
+  return {
+    name,
+    downloads
+  };
+}
+
+async function fetchTorrentRelease(url) {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    throw new Error("Escribe una URL valida.");
+  }
+
+  if (!["http:", "https:"].includes(parsedUrl.protocol)) {
+    throw new Error("Solo se admiten URLs http o https.");
+  }
+
+  const response = await fetch(parsedUrl, {
+    headers: {
+      accept: "application/json, text/plain;q=0.9, */*;q=0.8"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`La URL respondio con estado ${response.status}.`);
+  }
+
+  const raw = await response.text();
+  let payload;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    throw new Error("La pagina no devolvio un JSON valido.");
+  }
+
+  return {
+    sourceUrl: parsedUrl.toString(),
+    fetchedAt: new Date().toISOString(),
+    release: normalizeTorrentReleasePayload(payload)
+  };
+}
+
 ipcMain.handle("app:bootstrap", async () => {
   return getBootstrapPayload(await detectGitStatus());
 });
@@ -772,6 +860,68 @@ ipcMain.handle("app:open-external", async (_event, url) => {
 
   await shell.openExternal(url);
   return { ok: true };
+});
+
+ipcMain.handle("torrent:list", async () => {
+  return torrentService.listDownloads();
+});
+
+ipcMain.handle("torrent:fetch-release", async (_event, url) => {
+  const source = await fetchTorrentRelease(url);
+  state.torrentReleaseSources = [
+    source,
+    ...state.torrentReleaseSources.filter((entry) => entry?.sourceUrl !== source.sourceUrl)
+  ];
+  await persistLocalState();
+  return source;
+});
+
+ipcMain.handle("torrent:remove-source", async (_event, sourceUrl) => {
+  state.torrentReleaseSources = state.torrentReleaseSources.filter((entry) => entry?.sourceUrl !== sourceUrl);
+  await persistLocalState();
+  return state.torrentReleaseSources;
+});
+
+ipcMain.handle("torrent:start", async (_event, payload) => {
+  const download = await torrentService.startDownload(payload);
+  emitInfo(`Descarga torrent iniciada: ${download.title}.`);
+  await emitBootstrap();
+  return download;
+});
+
+ipcMain.handle("torrent:pause", async (_event, downloadId) => {
+  const download = torrentService.pauseDownload(downloadId);
+  emitInfo(`Descarga pausada: ${download.title}.`);
+  return download;
+});
+
+ipcMain.handle("torrent:resume", async (_event, downloadId) => {
+  const download = torrentService.resumeDownload(downloadId);
+  emitInfo(`Descarga reanudada: ${download.title}.`);
+  return download;
+});
+
+ipcMain.handle("torrent:cancel", async (_event, downloadId) => {
+  const download = await torrentService.cancelDownload(downloadId);
+  emitInfo(`Descarga cancelada: ${download.title}.`);
+  return download;
+});
+
+ipcMain.handle("torrent:open-folder", async (_event, downloadId) => {
+  const outputDir = torrentService.getOutputDir(downloadId);
+  if (!outputDir) {
+    throw new Error("No se encontro la descarga solicitada.");
+  }
+
+  const openError = await shell.openPath(outputDir);
+  if (openError) {
+    throw new Error(openError);
+  }
+
+  return {
+    ok: true,
+    outputDir
+  };
 });
 
 ipcMain.handle("settings:add-scan-root", async (_event, directoryPath) => {
@@ -999,11 +1149,6 @@ ipcMain.handle("game:launch", async (_event, gameId) => {
   return { ok: true };
 });
 
-ipcMain.handle("sync:start", async () => {
-  await ensureMonitoringStarted();
-  return { ok: true };
-});
-
 ipcMain.handle("sync:backup-now", async (_event, gameId) => {
   const game = state.games.find((item) => item.id === gameId);
   if (!game) {
@@ -1070,7 +1215,8 @@ app.whenReady()
     const loadedState = await stateStore.load();
     state = {
       ...loadedState,
-      games: Array.isArray(loadedState.games) ? loadedState.games.map(normalizeGameRecord) : []
+      games: Array.isArray(loadedState.games) ? loadedState.games.map(normalizeGameRecord) : [],
+      torrentReleaseSources: Array.isArray(loadedState.torrentReleaseSources) ? loadedState.torrentReleaseSources : []
     };
 
     if (loadedState.googleTokens) {
@@ -1079,6 +1225,7 @@ app.whenReady()
 
     await stateStore.cleanupTempBackups();
     syncService.setGames(state.games);
+    await ensureMonitoringStarted();
     startSessionPolling();
     await pollRunningStates();
     configureAutoUpdater();
@@ -1120,7 +1267,14 @@ app.on("before-quit", (event) => {
     }
 
     await syncService.stop();
-    app.exit(0);
+    await torrentService.destroy();
+
+    if (shouldInstallUpdateOnQuit) {
+      autoUpdater.quitAndInstall(false, true);
+      return;
+    }
+
+    app.quit();
   })().catch((error) => {
     console.error("No se pudo cerrar la aplicacion limpiamente:", error);
     app.exit(1);

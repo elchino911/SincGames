@@ -5,7 +5,14 @@ declare global {
     sincgames: {
       getBootstrap: () => Promise<BootstrapPayload>;
       openExternalUrl: (url: string) => Promise<{ ok: boolean }>;
-      startMonitoring: () => Promise<{ ok: boolean }>;
+      listTorrentDownloads: () => Promise<TorrentDownloadRecord[]>;
+      fetchTorrentRelease: (url: string) => Promise<TorrentReleaseSourceRecord>;
+      removeTorrentReleaseSource: (sourceUrl: string) => Promise<TorrentReleaseSourceRecord[]>;
+      startTorrentDownload: (payload: TorrentDownloadPayload) => Promise<TorrentDownloadRecord>;
+      pauseTorrentDownload: (downloadId: string) => Promise<TorrentDownloadRecord>;
+      resumeTorrentDownload: (downloadId: string) => Promise<TorrentDownloadRecord>;
+      cancelTorrentDownload: (downloadId: string) => Promise<TorrentDownloadRecord>;
+      openTorrentFolder: (downloadId: string) => Promise<{ ok: boolean; outputDir: string }>;
       connectGoogleDrive: () => Promise<{ ok: boolean; authUrl: string | null }>;
       pickDirectory: () => Promise<string | null>;
       addScanRoot: (directoryPath: string) => Promise<string[]>;
@@ -22,6 +29,7 @@ declare global {
       onSyncEvent: (callback: (payload: SyncEventPayload) => void) => () => void;
       onStateUpdated: (callback: (payload: BootstrapPayload) => void) => () => void;
       onDiscoveryStatus: (callback: (payload: DiscoveryStatusPayload) => void) => () => void;
+      onTorrentUpdated: (callback: (payload: TorrentDownloadRecord[]) => void) => () => void;
     };
   }
 }
@@ -141,8 +149,10 @@ export interface BootstrapPayload {
   };
   scanRoots: string[];
   discoveryCandidates: DiscoveryCandidate[];
+  torrentReleaseSources: TorrentReleaseSourceRecord[];
   manifestInfo: ManifestInfo | null;
   games: GameRecord[];
+  torrentDownloads: TorrentDownloadRecord[];
   design: {
     accent: string;
     accentSoft: string;
@@ -175,6 +185,53 @@ export interface GoogleOAuthPayload {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
+}
+
+export interface TorrentDownloadPayload {
+  sourceName: string;
+  title: string;
+  magnetUri: string;
+  fileSizeLabel?: string | null;
+  uploadDate?: string | null;
+  outputDir?: string;
+}
+
+export interface TorrentDownloadRecord {
+  id: string;
+  sourceName: string;
+  title: string;
+  fileSizeLabel: string | null;
+  uploadDate: string | null;
+  outputDir: string;
+  status: "starting" | "downloading" | "paused" | "completed" | "canceled" | "error";
+  progress: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  downloadSpeed: number;
+  numPeers: number;
+  infoHash: string | null;
+  errorMessage: string | null;
+  warningMessage: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+export interface TorrentReleaseDownload {
+  title: string;
+  fileSize: string | null;
+  uploadDate: string | null;
+  uris: string[];
+}
+
+export interface TorrentReleasePayload {
+  name: string;
+  downloads: TorrentReleaseDownload[];
+}
+
+export interface TorrentReleaseSourceRecord {
+  sourceUrl: string;
+  fetchedAt: string;
+  release: TorrentReleasePayload;
 }
 
 export {};

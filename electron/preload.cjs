@@ -3,7 +3,14 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("sincgames", {
   getBootstrap: () => ipcRenderer.invoke("app:bootstrap"),
   openExternalUrl: (url) => ipcRenderer.invoke("app:open-external", url),
-  startMonitoring: () => ipcRenderer.invoke("sync:start"),
+  listTorrentDownloads: () => ipcRenderer.invoke("torrent:list"),
+  fetchTorrentRelease: (url) => ipcRenderer.invoke("torrent:fetch-release", url),
+  removeTorrentReleaseSource: (sourceUrl) => ipcRenderer.invoke("torrent:remove-source", sourceUrl),
+  startTorrentDownload: (payload) => ipcRenderer.invoke("torrent:start", payload),
+  pauseTorrentDownload: (downloadId) => ipcRenderer.invoke("torrent:pause", downloadId),
+  resumeTorrentDownload: (downloadId) => ipcRenderer.invoke("torrent:resume", downloadId),
+  cancelTorrentDownload: (downloadId) => ipcRenderer.invoke("torrent:cancel", downloadId),
+  openTorrentFolder: (downloadId) => ipcRenderer.invoke("torrent:open-folder", downloadId),
   connectGoogleDrive: () => ipcRenderer.invoke("drive:connect"),
   pickDirectory: () => ipcRenderer.invoke("dialog:pick-directory"),
   addScanRoot: (directoryPath) => ipcRenderer.invoke("settings:add-scan-root", directoryPath),
@@ -31,5 +38,10 @@ contextBridge.exposeInMainWorld("sincgames", {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("discovery:status", listener);
     return () => ipcRenderer.removeListener("discovery:status", listener);
+  },
+  onTorrentUpdated: (callback) => {
+    const listener = (_event, payload) => callback(payload);
+    ipcRenderer.on("torrent:updated", listener);
+    return () => ipcRenderer.removeListener("torrent:updated", listener);
   }
 });

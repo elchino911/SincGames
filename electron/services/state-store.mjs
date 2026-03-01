@@ -5,6 +5,7 @@ const defaultState = {
   scanRoots: [],
   discoveryCandidates: [],
   games: [],
+  torrentReleaseSources: [],
   manifestInfo: null,
   lastCloudSyncAt: null,
   offlineBackupDir: null,
@@ -35,6 +36,7 @@ export class StateStore {
         scanRoots: Array.isArray(parsed.scanRoots) ? parsed.scanRoots : [],
         discoveryCandidates: Array.isArray(parsed.discoveryCandidates) ? parsed.discoveryCandidates : [],
         games: Array.isArray(parsed.games) ? parsed.games : [],
+        torrentReleaseSources: Array.isArray(parsed.torrentReleaseSources) ? parsed.torrentReleaseSources : [],
         offlineBackupDir: typeof parsed.offlineBackupDir === "string" ? parsed.offlineBackupDir : null,
         googleTokens: parsed.googleTokens && typeof parsed.googleTokens === "object" ? parsed.googleTokens : null
       };

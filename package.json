@@ -1,6 +1,6 @@
 {
   "name": "sincgames",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": false,
   "description": "Desktop app to detect, package, and sync game saves to Google Drive.",
   "author": "elchino911",

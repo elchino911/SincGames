@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { BootstrapPayload, DiscoveryCandidate, DiscoveryStatusPayload, GameRecord, LaunchType, SyncEventPayload } from "./vite-env";
+import type { BootstrapPayload, DiscoveryCandidate, DiscoveryStatusPayload, GameRecord, GoogleOAuthPayload, LaunchType, SyncEventPayload } from "./vite-env";
 
 type TopView = "library" | "discovery" | "cloud" | "activity";
 type LibraryTab = "summary" | "saves" | "paths" | "manage";
@@ -14,6 +14,8 @@ type GameFormState = {
   launchType: LaunchType;
   launchTarget: string;
 };
+
+type OAuthFormState = GoogleOAuthPayload;
 
 const emptyForm = (): GameFormState => ({
   title: "",
@@ -79,6 +81,11 @@ function App() {
   const [newRoot, setNewRoot] = useState("");
   const [manualForm, setManualForm] = useState<GameFormState>(emptyForm);
   const [editForm, setEditForm] = useState<GameFormState>(emptyForm);
+  const [oauthForm, setOauthForm] = useState<OAuthFormState>({
+    clientId: "",
+    clientSecret: "",
+    redirectUri: "http://127.0.0.1:42813/oauth2/callback"
+  });
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatusPayload | null>(null);
   const [startupDismissed, setStartupDismissed] = useState(false);
@@ -130,6 +137,15 @@ function App() {
   useEffect(() => {
     setEditForm(toFormState(selectedGame));
   }, [selectedGame]);
+
+  useEffect(() => {
+    if (!bootstrap) return;
+    setOauthForm({
+      clientId: bootstrap.env.googleOauthClientId || "",
+      clientSecret: bootstrap.env.googleOauthClientSecret || "",
+      redirectUri: bootstrap.env.googleOauthRedirectUri || "http://127.0.0.1:42813/oauth2/callback"
+    });
+  }, [bootstrap]);
 
   const filteredGames = useMemo(() => {
     const needle = libraryFilter.trim().toLowerCase();
@@ -320,6 +336,35 @@ function App() {
     try {
       await bridge.connectGoogleDrive();
       setStartupDismissed(true);
+    } catch (error) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: error instanceof Error ? error.message : "No se pudo iniciar la conexion con Google."
+        },
+        ...current
+      ]);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const saveGoogleOAuth = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!bridge) return;
+    setBusyAction("oauth-save");
+    try {
+      await bridge.saveGoogleOAuth(oauthForm);
+    } catch (error) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: error instanceof Error ? error.message : "No se pudieron guardar las credenciales OAuth."
+        },
+        ...current
+      ]);
     } finally {
       setBusyAction(null);
     }
@@ -586,12 +631,49 @@ function App() {
                 <div><span>Fallback local</span><strong>{bootstrap?.env.offlineBackupDir || "No configurado"}</strong></div>
               </div>
             </article>
+            <article className="steam-card">
+              <h4>Credenciales OAuth</h4>
+              <form className="steam-form" onSubmit={saveGoogleOAuth}>
+                <label>
+                  <span>Client ID</span>
+                  <input
+                    value={oauthForm.clientId}
+                    onChange={(e) => setOauthForm((current) => ({ ...current, clientId: e.target.value }))}
+                    placeholder="Tu Google OAuth Client ID"
+                    required
+                  />
+                </label>
+                <label>
+                  <span>Client Secret</span>
+                  <input
+                    type="password"
+                    value={oauthForm.clientSecret}
+                    onChange={(e) => setOauthForm((current) => ({ ...current, clientSecret: e.target.value }))}
+                    placeholder="Tu Google OAuth Client Secret"
+                    required
+                  />
+                </label>
+                <label>
+                  <span>Redirect URI</span>
+                  <input
+                    value={oauthForm.redirectUri}
+                    onChange={(e) => setOauthForm((current) => ({ ...current, redirectUri: e.target.value }))}
+                    placeholder="http://127.0.0.1:42813/oauth2/callback"
+                    required
+                  />
+                </label>
+                <button className="secondary-button" type="submit" disabled={busyAction === "oauth-save"}>
+                  Guardar credenciales
+                </button>
+              </form>
+            </article>
             <article className="steam-card steam-card-span">
               <h4>Politica</h4>
               <div className="steam-path-list">
                 <div><span>Subida</span><strong>Se comprime el save cuando el juego ya esta cerrado y hubo cambios.</strong></div>
                 <div><span>Restauracion</span><strong>Se crea un backup temporal local antes de sobrescribir.</strong></div>
                 <div><span>Catalogo</span><strong>Rutas y metadata de juegos viven en Drive para evitar perdida por formateo.</strong></div>
+                <div><span>Archivo local</span><strong>{bootstrap?.env.oauthConfigPath}</strong></div>
               </div>
               <div className="steam-actions-row">
                 <button className="secondary-button" onClick={connectGoogle} disabled={busyAction === "google"}>Conectar Google</button>
@@ -798,6 +880,11 @@ function App() {
               Si no quieres conectarla ahora, configura una carpeta local para usarla como fallback de backups.
             </p>
             <div className="steam-actions-row">
+              {!bootstrap?.capabilities.googleConfigured ? (
+                <button className="secondary-button" onClick={() => setTopView("cloud")}>
+                  Configurar credenciales
+                </button>
+              ) : null}
               <button className="play-button" onClick={connectGoogle} disabled={busyAction === "google"}>
                 Conectar Google
               </button>

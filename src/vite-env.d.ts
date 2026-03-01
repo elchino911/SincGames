@@ -10,6 +10,7 @@ declare global {
       addScanRoot: (directoryPath: string) => Promise<string[]>;
       removeScanRoot: (directoryPath: string) => Promise<string[]>;
       setOfflineBackupDir: (directoryPath: string) => Promise<string>;
+      saveGoogleOAuth: (payload: GoogleOAuthPayload) => Promise<{ ok: boolean; envFilePath: string }>;
       scanForGames: () => Promise<{ candidates: DiscoveryCandidate[]; manifestInfo: ManifestInfo | null }>;
       addGameFromCandidate: (candidateId: string) => Promise<GameRecord>;
       createManualGame: (payload: ManualGamePayload) => Promise<GameRecord>;
@@ -120,6 +121,10 @@ export interface BootstrapPayload {
     autoDownloadIfNoLocalSave: boolean;
     tempBackupRetentionDays: number;
     offlineBackupDir: string | null;
+    oauthConfigPath: string;
+    googleOauthClientId: string;
+    googleOauthClientSecret: string;
+    googleOauthRedirectUri: string;
   };
   capabilities: {
     gitReady: boolean;
@@ -161,6 +166,12 @@ export interface DiscoveryStatusPayload {
   processedExecutables: number;
   running: boolean;
   message?: string;
+}
+
+export interface GoogleOAuthPayload {
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
 }
 
 export {};

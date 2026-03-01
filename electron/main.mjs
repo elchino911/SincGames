@@ -22,11 +22,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 function loadEnvFiles() {
+  const appDataEnvPath = path.join(
+    process.env.APPDATA || process.cwd(),
+    process.env.APP_NAME || "SincGames",
+    ".env.local"
+  );
   const candidates = [
     path.join(process.cwd(), ".env"),
     path.join(path.dirname(process.execPath), ".env"),
     path.join(process.resourcesPath || "", ".env"),
-    path.join(path.dirname(process.execPath), ".env.local")
+    path.join(path.dirname(process.execPath), ".env.local"),
+    appDataEnvPath
   ].filter(Boolean);
 
   for (const envPath of candidates) {
@@ -54,6 +60,32 @@ const env = {
   TEMP_BACKUP_RETENTION_DAYS: Number(process.env.TEMP_BACKUP_RETENTION_DAYS || 7),
   DISCOVERY_SCAN_DEPTH: Number(process.env.DISCOVERY_SCAN_DEPTH || 4)
 };
+
+function getUserEnvFilePath() {
+  return path.join(process.env.APPDATA || process.cwd(), env.APP_NAME || "SincGames", ".env.local");
+}
+
+async function saveUserEnvFile() {
+  const envFilePath = getUserEnvFilePath();
+  const lines = [
+    `APP_NAME=${env.APP_NAME}`,
+    `DEVICE_LABEL=${env.DEVICE_LABEL || ""}`,
+    `GOOGLE_DRIVE_ROOT_FOLDER_NAME=${env.GOOGLE_DRIVE_ROOT_FOLDER_NAME}`,
+    `GOOGLE_OAUTH_CLIENT_ID=${env.GOOGLE_OAUTH_CLIENT_ID || ""}`,
+    `GOOGLE_OAUTH_CLIENT_SECRET=${env.GOOGLE_OAUTH_CLIENT_SECRET || ""}`,
+    `GOOGLE_OAUTH_REDIRECT_URI=${env.GOOGLE_OAUTH_REDIRECT_URI || ""}`,
+    `GAME_MANIFEST_URL=${env.GAME_MANIFEST_URL}`,
+    `SYNC_STABILITY_WINDOW_MS=${env.SYNC_STABILITY_WINDOW_MS}`,
+    `SYNC_POLL_INTERVAL_MS=${env.SYNC_POLL_INTERVAL_MS}`,
+    `AUTO_DOWNLOAD_IF_NO_LOCAL_SAVE=${env.AUTO_DOWNLOAD_IF_NO_LOCAL_SAVE}`,
+    `TEMP_BACKUP_RETENTION_DAYS=${env.TEMP_BACKUP_RETENTION_DAYS}`,
+    `DISCOVERY_SCAN_DEPTH=${env.DISCOVERY_SCAN_DEPTH}`
+  ];
+
+  await fs.promises.mkdir(path.dirname(envFilePath), { recursive: true });
+  await fs.promises.writeFile(envFilePath, `${lines.join("\n")}\n`, "utf8");
+  return envFilePath;
+}
 
 let mainWindow = null;
 let discoveryWorker = null;
@@ -187,7 +219,11 @@ function getBootstrapPayload(gitReady) {
       driveRootFolderName: env.GOOGLE_DRIVE_ROOT_FOLDER_NAME,
       autoDownloadIfNoLocalSave: env.AUTO_DOWNLOAD_IF_NO_LOCAL_SAVE === "true",
       tempBackupRetentionDays: env.TEMP_BACKUP_RETENTION_DAYS,
-      offlineBackupDir: state.offlineBackupDir
+      offlineBackupDir: state.offlineBackupDir,
+      oauthConfigPath: getUserEnvFilePath(),
+      googleOauthClientId: env.GOOGLE_OAUTH_CLIENT_ID || "",
+      googleOauthClientSecret: env.GOOGLE_OAUTH_CLIENT_SECRET || "",
+      googleOauthRedirectUri: env.GOOGLE_OAUTH_REDIRECT_URI || ""
     },
     capabilities: {
       gitReady,
@@ -660,6 +696,31 @@ ipcMain.handle("settings:set-offline-backup-dir", async (_event, directoryPath) 
   await persistState({ syncCloud: driveService.isAuthenticated() });
   emitInfo(`Carpeta de respaldo local configurada: ${directoryPath}.`);
   return state.offlineBackupDir;
+});
+
+ipcMain.handle("settings:save-google-oauth", async (_event, payload) => {
+  env.GOOGLE_OAUTH_CLIENT_ID = payload.clientId?.trim() || "";
+  env.GOOGLE_OAUTH_CLIENT_SECRET = payload.clientSecret?.trim() || "";
+  env.GOOGLE_OAUTH_REDIRECT_URI =
+    payload.redirectUri?.trim() || "http://127.0.0.1:42813/oauth2/callback";
+
+  process.env.GOOGLE_OAUTH_CLIENT_ID = env.GOOGLE_OAUTH_CLIENT_ID;
+  process.env.GOOGLE_OAUTH_CLIENT_SECRET = env.GOOGLE_OAUTH_CLIENT_SECRET;
+  process.env.GOOGLE_OAUTH_REDIRECT_URI = env.GOOGLE_OAUTH_REDIRECT_URI;
+
+  driveService.setTokens(null);
+  driveService.updateConfig(env);
+  state.googleTokens = null;
+
+  const envFilePath = await saveUserEnvFile();
+  await stateStore.save(state);
+  await emitBootstrap();
+
+  emitInfo(`Credenciales OAuth guardadas en ${envFilePath}.`);
+  return {
+    ok: true,
+    envFilePath
+  };
 });
 
 ipcMain.handle("discovery:scan", async () => {

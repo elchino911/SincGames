@@ -7,18 +7,22 @@ import { google } from "googleapis";
 export class GoogleDriveService {
   constructor(env) {
     this.env = env;
+    this.tokens = null;
+    this.pendingAuthServer = null;
+    this.onTokensChanged = null;
+    this.initializeClients();
+  }
+
+  initializeClients() {
     this.oauth2Client = new google.auth.OAuth2(
-      env.GOOGLE_OAUTH_CLIENT_ID,
-      env.GOOGLE_OAUTH_CLIENT_SECRET,
-      env.GOOGLE_OAUTH_REDIRECT_URI
+      this.env.GOOGLE_OAUTH_CLIENT_ID,
+      this.env.GOOGLE_OAUTH_CLIENT_SECRET,
+      this.env.GOOGLE_OAUTH_REDIRECT_URI
     );
     this.drive = google.drive({
       version: "v3",
       auth: this.oauth2Client
     });
-    this.tokens = null;
-    this.pendingAuthServer = null;
-    this.onTokensChanged = null;
 
     this.oauth2Client.on("tokens", (tokens) => {
       if (!tokens) {
@@ -30,6 +34,14 @@ export class GoogleDriveService {
         ...tokens
       });
     });
+  }
+
+  updateConfig(nextEnv) {
+    this.env = nextEnv;
+    this.initializeClients();
+    if (this.tokens) {
+      this.oauth2Client.setCredentials(this.tokens);
+    }
   }
 
   getAuthUrl() {
@@ -55,6 +67,9 @@ export class GoogleDriveService {
     if (!tokens) {
       this.tokens = null;
       this.oauth2Client.setCredentials({});
+      if (this.onTokensChanged) {
+        void this.onTokensChanged(null);
+      }
       return;
     }
 

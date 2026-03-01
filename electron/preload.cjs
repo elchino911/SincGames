@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("sincgames", {
   getBootstrap: () => ipcRenderer.invoke("app:bootstrap"),
+  openExternalUrl: (url) => ipcRenderer.invoke("app:open-external", url),
   startMonitoring: () => ipcRenderer.invoke("sync:start"),
   connectGoogleDrive: () => ipcRenderer.invoke("drive:connect"),
   pickDirectory: () => ipcRenderer.invoke("dialog:pick-directory"),

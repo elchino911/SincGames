@@ -664,6 +664,15 @@ ipcMain.handle("dialog:pick-directory", async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
+ipcMain.handle("app:open-external", async (_event, url) => {
+  if (!url || typeof url !== "string") {
+    throw new Error("No se recibio una URL valida.");
+  }
+
+  await shell.openExternal(url);
+  return { ok: true };
+});
+
 ipcMain.handle("settings:add-scan-root", async (_event, directoryPath) => {
   if (!directoryPath) {
     return state.scanRoots;

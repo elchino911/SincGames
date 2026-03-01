@@ -4,6 +4,7 @@ declare global {
   interface Window {
     sincgames: {
       getBootstrap: () => Promise<BootstrapPayload>;
+      openExternalUrl: (url: string) => Promise<{ ok: boolean }>;
       startMonitoring: () => Promise<{ ok: boolean }>;
       connectGoogleDrive: () => Promise<{ ok: boolean; authUrl: string | null }>;
       pickDirectory: () => Promise<string | null>;

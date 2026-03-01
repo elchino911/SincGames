@@ -70,6 +70,170 @@ const launchHelp = (launchType: LaunchType) => {
 };
 
 function App() {
+  const oauthHelpSlides = [
+    {
+      title: "1. Abre Google Cloud Console",
+      body: "Entra a Google Cloud Console. Desde aqui vas a crear o elegir el proyecto donde quedaran tu cliente OAuth y el acceso a Google Drive.",
+      imagePath: "./help/google-oauth/step-1-console-home.png",
+      links: [
+        { label: "Google Cloud Console", href: "https://console.cloud.google.com/" }
+      ]
+    },
+    {
+      title: "2. Abre el selector de proyecto",
+      body: "Haz click en Selecciona un proyecto para abrir el selector. Desde ahi puedes crear uno nuevo si todavia no existe.",
+      imagePath: "./help/google-oauth/step-2-project-picker.png",
+      links: [
+        { label: "Selector de proyectos", href: "https://console.cloud.google.com/" }
+      ]
+    },
+    {
+      title: "3. Crea un proyecto nuevo",
+      body: "Dentro del selector, pulsa Proyecto nuevo. Asigna un nombre identificable como SincGames y crea el proyecto.",
+      imagePath: "./help/google-oauth/step-3-project-new.png",
+      links: [
+        { label: "Crear proyecto", href: "https://console.cloud.google.com/projectcreate" }
+      ]
+    },
+    {
+      title: "4. Vuelve al selector de proyecto",
+      body: "Cuando termine la creacion, vuelve a abrir el selector de proyecto para elegir el proyecto que acabas de crear.",
+      imagePath: "./help/google-oauth/step-4-project-picker-return.png",
+      links: [
+        { label: "Google Cloud Console", href: "https://console.cloud.google.com/" }
+      ]
+    },
+    {
+      title: "5. Selecciona tu proyecto",
+      body: "Busca el proyecto que acabas de crear y seleccionarlo. Todo lo que hagas despues debe quedar dentro de ese proyecto.",
+      imagePath: "./help/google-oauth/step-5-project-select.png",
+      links: [
+        { label: "Tus proyectos", href: "https://console.cloud.google.com/" }
+      ]
+    },
+    {
+      title: "6. Busca APIs y servicios",
+      body: "Con el proyecto ya activo, usa la barra de busqueda y entra a APIs y servicios. Desde ahi vas a habilitar Google Drive API.",
+      imagePath: "./help/google-oauth/step-6-search-apis-services.png",
+      links: [
+        { label: "APIs y servicios", href: "https://console.cloud.google.com/apis/dashboard" }
+      ]
+    },
+    {
+      title: "7. Busca Google Drive API",
+      body: "Dentro de APIs y servicios, escribe drive y abre Google Drive API. Asegurate de abrir la API oficial de Google Drive.",
+      imagePath: "./help/google-oauth/step-7-search-drive-api.png",
+      links: [
+        { label: "Biblioteca de APIs", href: "https://console.cloud.google.com/apis/library/drive.googleapis.com" }
+      ]
+    },
+    {
+      title: "8. Habilita Google Drive API",
+      body: "En la ficha de Google Drive API pulsa Habilitar. Sin este paso, SincGames no podra subir ni leer respaldos desde tu Drive.",
+      imagePath: "./help/google-oauth/step-8-enable-drive-api.png",
+      links: [
+        { label: "Google Drive API", href: "https://console.cloud.google.com/apis/library/drive.googleapis.com" }
+      ]
+    },
+    {
+      title: "9. Ve a Credenciales",
+      body: "Abre la seccion Credenciales. Si aparece el aviso para configurar la pantalla de consentimiento, ese es el siguiente paso correcto.",
+      imagePath: "./help/google-oauth/step-9-credentials-warning.png",
+      links: [
+        { label: "Credenciales", href: "https://console.cloud.google.com/apis/credentials" }
+      ]
+    },
+    {
+      title: "10. Inicia Google Auth Platform",
+      body: "Haz click en Comenzar para configurar Google Auth Platform. Aqui se define la pantalla de consentimiento y quien puede usar tu app.",
+      imagePath: "./help/google-oauth/step-10-oauth-start.png",
+      links: [
+        { label: "Google Auth Platform", href: "https://console.cloud.google.com/auth/overview" },
+        { label: "Guia oficial", href: "https://developers.google.com/workspace/guides/configure-oauth-consent" }
+      ]
+    },
+    {
+      title: "11. Completa la informacion de la app",
+      body: "Pon un nombre para la app, por ejemplo SincGames, y elige el correo de asistencia al usuario. Ese correo aparece en la pantalla de consentimiento.",
+      imagePath: "./help/google-oauth/step-11-branding-app-info.png",
+      links: [
+        { label: "Branding", href: "https://console.cloud.google.com/auth/branding" }
+      ]
+    },
+    {
+      title: "12. Configura el publico",
+      body: "En el paso Publico deja la app como Externa y mantenla en modo Prueba. Esto permite usarla con tu propia cuenta sin pasar por verificacion publica.",
+      imagePath: "./help/google-oauth/step-12-branding-audience.png",
+      links: [
+        { label: "Publico", href: "https://console.cloud.google.com/auth/audience" }
+      ]
+    },
+    {
+      title: "13. Agrega el correo de contacto",
+      body: "Escribe el correo del desarrollador o de contacto. Google usara esta direccion para notificar cambios importantes del proyecto.",
+      imagePath: "./help/google-oauth/step-13-contact-info.png",
+      links: [
+        { label: "Informacion de marca", href: "https://console.cloud.google.com/auth/branding" }
+      ]
+    },
+    {
+      title: "14. Finaliza la configuracion inicial",
+      body: "Acepta la politica de datos del usuario de APIs de Google, pulsa Continuar y despues Crear. Con eso queda lista la configuracion base de OAuth.",
+      imagePath: "./help/google-oauth/step-14-finalize.png",
+      links: [
+        { label: "Resumen OAuth", href: "https://console.cloud.google.com/auth/overview" }
+      ]
+    },
+    {
+      title: "15. Crea el cliente OAuth",
+      body: "De vuelta en la descripcion general, pulsa Crear cliente de OAuth. Ese cliente es el que le vas a pegar a SincGames.",
+      imagePath: "./help/google-oauth/step-15-create-oauth-client.png",
+      links: [
+        { label: "Clients", href: "https://console.cloud.google.com/auth/clients" }
+      ]
+    },
+    {
+      title: "16. Elige App de escritorio",
+      body: "En Tipo de aplicacion selecciona App de escritorio. Ese es el tipo correcto para la app local de Windows.",
+      imagePath: "./help/google-oauth/step-16-desktop-app-type.png",
+      links: [
+        { label: "Crear cliente", href: "https://console.cloud.google.com/auth/clients/create" }
+      ]
+    },
+    {
+      title: "17. Asigna nombre y crea",
+      body: "Deja un nombre reconocible para el cliente, por ejemplo Cliente de escritorio 1 o SincGames Desktop, y pulsa Crear.",
+      imagePath: "./help/google-oauth/step-17-create-desktop-client.png",
+      links: [
+        { label: "Crear cliente", href: "https://console.cloud.google.com/auth/clients/create" }
+      ]
+    },
+    {
+      title: "18. Copia Client ID y Client Secret",
+      body: "Copia el ID de cliente y el Secreto del cliente. Guardalos de forma segura y luego pegalos en la seccion Nube de SincGames.",
+      imagePath: "./help/google-oauth/step-18-copy-client-id-secret.png",
+      links: [
+        { label: "Lista de clientes", href: "https://console.cloud.google.com/auth/clients" }
+      ]
+    },
+    {
+      title: "19. Agrega el usuario de prueba",
+      body: "Abre la seccion Publico y pulsa Add users. Aqui vas a registrar el correo de Google con el que conectaras SincGames.",
+      imagePath: "./help/google-oauth/step-19-add-test-user.png",
+      links: [
+        { label: "Publico", href: "https://console.cloud.google.com/auth/audience" }
+      ]
+    },
+    {
+      title: "20. Guarda el correo autorizado",
+      body: "Escribe el correo que usaras para conectar el programa y pulsa Guardar. Con esto queda creado y configurado el acceso a Google Drive para SincGames.",
+      imagePath: "./help/google-oauth/step-20-save-test-user.png",
+      links: [
+        { label: "Usuarios de prueba", href: "https://console.cloud.google.com/auth/audience" }
+      ]
+    }
+  ] as const;
+
   const bridge = window.sincgames;
   const [bridgeError, setBridgeError] = useState<string | null>(bridge ? null : "No se cargo el bridge de Electron.");
   const [bootstrap, setBootstrap] = useState<BootstrapPayload | null>(null);
@@ -86,6 +250,10 @@ function App() {
     clientSecret: "",
     redirectUri: "http://127.0.0.1:42813/oauth2/callback"
   });
+  const [oauthNotice, setOauthNotice] = useState<string | null>(null);
+  const [oauthHelpOpen, setOauthHelpOpen] = useState(false);
+  const [oauthHelpIndex, setOauthHelpIndex] = useState(0);
+  const [oauthHelpImageFailed, setOauthHelpImageFailed] = useState<Record<number, boolean>>({});
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatusPayload | null>(null);
   const [startupDismissed, setStartupDismissed] = useState(false);
@@ -232,7 +400,6 @@ function App() {
     setBusyAction(`import:${candidate.id}`);
     try {
       await bridge.addGameFromCandidate(candidate.id);
-      setTopView("library");
     } finally {
       setBusyAction(null);
     }
@@ -254,7 +421,6 @@ function App() {
         launchTarget: manualForm.launchTarget
       });
       setManualForm(emptyForm());
-      setTopView("library");
     } finally {
       setBusyAction(null);
     }
@@ -336,6 +502,7 @@ function App() {
     try {
       await bridge.connectGoogleDrive();
       setStartupDismissed(true);
+      setOauthNotice(null);
     } catch (error) {
       setActivity((current) => [
         {
@@ -355,8 +522,10 @@ function App() {
     if (!bridge) return;
     setBusyAction("oauth-save");
     try {
-      await bridge.saveGoogleOAuth(oauthForm);
+      const result = await bridge.saveGoogleOAuth(oauthForm);
+      setOauthNotice(`Credenciales guardadas correctamente en ${result.envFilePath}.`);
     } catch (error) {
+      setOauthNotice(null);
       setActivity((current) => [
         {
           type: "warning",
@@ -386,6 +555,30 @@ function App() {
   const openCloudCredentialsPanel = () => {
     setTopView("cloud");
     setStartupDismissed(true);
+  };
+
+  const openOAuthHelp = () => {
+    setOauthHelpIndex(0);
+    setOauthHelpOpen(true);
+  };
+
+  const currentHelpSlide = oauthHelpSlides[oauthHelpIndex];
+  const currentHelpImageName = currentHelpSlide.imagePath.split("/").pop() || currentHelpSlide.imagePath;
+
+  const openExternalLink = async (href: string) => {
+    if (!bridge) return;
+    try {
+      await bridge.openExternalUrl(href);
+    } catch (error) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: error instanceof Error ? error.message : `No se pudo abrir el enlace: ${href}`
+        },
+        ...current
+      ]);
+    }
   };
 
   const renderLibraryContent = () => {
@@ -647,6 +840,9 @@ function App() {
                     placeholder="Tu Google OAuth Client ID"
                     required
                   />
+                  <small className="field-help">
+                    Es el identificador publico de tu cliente OAuth. Google lo muestra cuando terminas de crear el cliente.
+                  </small>
                 </label>
                 <label>
                   <span>Client Secret</span>
@@ -657,6 +853,9 @@ function App() {
                     placeholder="Tu Google OAuth Client Secret"
                     required
                   />
+                  <small className="field-help">
+                    Es la clave privada del cliente. Copiala al crear el cliente y no la publiques en Git ni en capturas.
+                  </small>
                 </label>
                 <label>
                   <span>Redirect URI</span>
@@ -666,10 +865,24 @@ function App() {
                     placeholder="http://127.0.0.1:42813/oauth2/callback"
                     required
                   />
+                  <small className="field-help">
+                    Para SincGames usa este valor local. Debe coincidir exactamente con el valor esperado por la app cuando haces login.
+                  </small>
                 </label>
+                <div className="help-tip oauth-fields-tip">
+                  <span>Que hace cada campo</span>
+                  <strong>Client ID identifica la app, Client Secret autoriza la app y Redirect URI recibe el retorno del login.</strong>
+                  <p className="muted-copy">
+                    Si copias mal alguno de estos tres valores, Google devolvera errores como <code>redirect_uri_mismatch</code> o bloqueo de acceso.
+                  </p>
+                </div>
                 <button className="secondary-button" type="submit" disabled={busyAction === "oauth-save"}>
                   Guardar credenciales
                 </button>
+                <button className="mini-button" type="button" onClick={openOAuthHelp}>
+                  Ayuda paso a paso
+                </button>
+                {oauthNotice ? <p className="success-copy">{oauthNotice}</p> : null}
               </form>
             </article>
             <article className="steam-card steam-card-span">
@@ -886,9 +1099,14 @@ function App() {
             </p>
             <div className="steam-actions-row">
               {!bootstrap?.capabilities.googleConfigured ? (
-                <button className="secondary-button" onClick={openCloudCredentialsPanel}>
-                  Configurar credenciales
-                </button>
+                <>
+                  <button className="secondary-button" onClick={openCloudCredentialsPanel}>
+                    Configurar credenciales
+                  </button>
+                  <button className="secondary-button" onClick={openOAuthHelp}>
+                    Ayuda
+                  </button>
+                </>
               ) : null}
               <button className="play-button" onClick={connectGoogle} disabled={busyAction === "google"}>
                 Conectar Google
@@ -901,6 +1119,115 @@ function App() {
               <span>Google: restaura catalogo y backups remotos.</span>
               <span>Fallback local: guarda ZIPs y catalogo en la carpeta elegida.</span>
             </div>
+          </article>
+        </section>
+      ) : null}
+
+      {oauthHelpOpen ? (
+        <section className="help-overlay" onClick={() => setOauthHelpOpen(false)}>
+          <article className="help-modal" onClick={(event) => event.stopPropagation()}>
+            <header className="help-header">
+              <div>
+                <span className="section-kicker">Ayuda OAuth</span>
+                <h3>{currentHelpSlide.title}</h3>
+              </div>
+              <button className="tiny-button" onClick={() => setOauthHelpOpen(false)}>
+                Cerrar
+              </button>
+            </header>
+
+            <div className="help-progress">
+              <strong>
+                Paso {oauthHelpIndex + 1} de {oauthHelpSlides.length}
+              </strong>
+              <div className="help-progress-bar">
+                <span style={{ width: `${((oauthHelpIndex + 1) / oauthHelpSlides.length) * 100}%` }} />
+              </div>
+            </div>
+
+            <div className="help-layout">
+              <section className="help-copy">
+                <p>{currentHelpSlide.body}</p>
+
+                <div className="help-links">
+                  {currentHelpSlide.links.map((link) => (
+                    <button key={link.href} className="secondary-button help-link" type="button" onClick={() => void openExternalLink(link.href)}>
+                      {link.label}
+                    </button>
+                  ))}
+                  {!currentHelpSlide.links.length ? (
+                    <p className="muted-copy">Este paso no requiere enlaces extra; usa la captura como referencia.</p>
+                  ) : null}
+                </div>
+
+                <div className="help-tip">
+                  <span>Captura esperada</span>
+                  <strong>{currentHelpImageName}</strong>
+                  <p className="muted-copy">
+                    Coloca tu imagen en <code>{currentHelpSlide.imagePath.replace("./", "public/")}</code> para que aparezca aqui.
+                  </p>
+                </div>
+              </section>
+
+              <section className="help-visual">
+                {!oauthHelpImageFailed[oauthHelpIndex] ? (
+                  <img
+                    src={currentHelpSlide.imagePath}
+                    alt={currentHelpSlide.title}
+                    onLoad={() =>
+                      setOauthHelpImageFailed((current) => {
+                        if (!current[oauthHelpIndex]) return current;
+                        const next = { ...current };
+                        delete next[oauthHelpIndex];
+                        return next;
+                      })
+                    }
+                    onError={() =>
+                      setOauthHelpImageFailed((current) => ({
+                        ...current,
+                        [oauthHelpIndex]: true
+                      }))
+                    }
+                  />
+                ) : null}
+
+                {oauthHelpImageFailed[oauthHelpIndex] ? (
+                  <div className="help-image-placeholder">
+                    <strong>Falta la captura de este paso</strong>
+                    <span>{currentHelpImageName}</span>
+                    <p>
+                      Puedes tomar la captura y guardarla en <code>{currentHelpSlide.imagePath.replace("./", "public/")}</code>.
+                    </p>
+                  </div>
+                ) : null}
+              </section>
+            </div>
+
+            <footer className="help-footer">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => setOauthHelpIndex((current) => Math.max(0, current - 1))}
+                disabled={oauthHelpIndex === 0}
+              >
+                Anterior
+              </button>
+              <button
+                className="play-button help-next"
+                type="button"
+                onClick={() => {
+                  if (oauthHelpIndex === oauthHelpSlides.length - 1) {
+                    setOauthHelpOpen(false);
+                    setTopView("cloud");
+                    setStartupDismissed(true);
+                    return;
+                  }
+                  setOauthHelpIndex((current) => Math.min(oauthHelpSlides.length - 1, current + 1));
+                }}
+              >
+                {oauthHelpIndex === oauthHelpSlides.length - 1 ? "Ir a Nube" : "Siguiente"}
+              </button>
+            </footer>
           </article>
         </section>
       ) : null}

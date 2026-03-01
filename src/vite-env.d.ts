@@ -65,6 +65,8 @@ export interface GameRecord {
   currentlyRunning?: boolean;
   sessionStartedAt?: string | null;
   lastPlayedAt?: string | null;
+  processStartedAt?: string | null;
+  trackedUntilAt?: string | null;
   installed: boolean;
   platform: "windows";
   filePatterns: string[];

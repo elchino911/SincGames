@@ -12,7 +12,7 @@ import { GoogleDriveService } from "./services/google-drive.mjs";
 import { SaveSyncService } from "./services/save-sync.mjs";
 import { StateStore } from "./services/state-store.mjs";
 import { RestoreService } from "./services/restore-service.mjs";
-import { isProcessRunning } from "./services/system.mjs";
+import { getProcessState, isProcessRunning } from "./services/system.mjs";
 
 const { autoUpdater } = electronUpdater;
 
@@ -90,6 +90,7 @@ async function saveUserEnvFile() {
 let mainWindow = null;
 let discoveryWorker = null;
 let sessionPollTimer = null;
+let isQuitting = false;
 const runtime = {
   monitoringStarted: false,
   discoveryRunning: false,
@@ -281,6 +282,8 @@ function serializeCatalog() {
       ...game,
       currentlyRunning: false,
       sessionStartedAt: null,
+      processStartedAt: null,
+      trackedUntilAt: null,
       latestLocalSave: null
     }))
   };
@@ -465,9 +468,11 @@ function normalizeGameRecord(game) {
     launchType: game.launchType || (game.executablePath ? "exe" : "exe"),
     launchTarget: game.launchTarget || game.executablePath || "",
     totalPlaySeconds: Number(game.totalPlaySeconds || 0),
-    currentlyRunning: false,
-    sessionStartedAt: null,
+    currentlyRunning: Boolean(game.currentlyRunning),
+    sessionStartedAt: game.sessionStartedAt || null,
     lastPlayedAt: game.lastPlayedAt || null,
+    processStartedAt: game.processStartedAt || null,
+    trackedUntilAt: game.trackedUntilAt || null,
     filePatterns: Array.isArray(game.filePatterns) && game.filePatterns.length ? game.filePatterns : ["**/*"]
   };
 }
@@ -508,6 +513,63 @@ async function ensureMonitoringStarted() {
   await emitBootstrap();
 }
 
+function getElapsedSeconds(startedAt, now) {
+  if (!startedAt) {
+    return 0;
+  }
+
+  const startedAtMs = new Date(startedAt).getTime();
+  if (Number.isNaN(startedAtMs)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.round((now - startedAtMs) / 1000));
+}
+
+async function flushRunningSessions({ preserveRunningProcesses = false } = {}) {
+  if (state.games.length === 0) {
+    return false;
+  }
+
+  const now = Date.now();
+  let changed = false;
+  let shouldSyncCloud = false;
+  const updatedGames = [];
+
+  for (const game of state.games) {
+    if (!game.currentlyRunning) {
+      updatedGames.push(game);
+      continue;
+    }
+
+    const processState = preserveRunningProcesses ? await getProcessState(game.processName) : { running: false, startedAt: null };
+    const elapsedSeconds = getElapsedSeconds(game.sessionStartedAt, now);
+    const trackedUntilAt = new Date(now).toISOString();
+    const runningAfterFlush = preserveRunningProcesses && processState.running;
+
+    updatedGames.push({
+      ...game,
+      currentlyRunning: false,
+      sessionStartedAt: null,
+      totalPlaySeconds: Number(game.totalPlaySeconds || 0) + elapsedSeconds,
+      lastPlayedAt: runningAfterFlush ? game.lastPlayedAt || null : trackedUntilAt,
+      processStartedAt: runningAfterFlush ? processState.startedAt || game.processStartedAt || null : null,
+      trackedUntilAt: runningAfterFlush ? trackedUntilAt : null
+    });
+
+    changed = true;
+    shouldSyncCloud = true;
+  }
+
+  if (!changed) {
+    return false;
+  }
+
+  state.games = updatedGames;
+  await persistState({ syncCloud: shouldSyncCloud && driveService.isAuthenticated() });
+  return true;
+}
+
 function startSessionPolling() {
   if (sessionPollTimer) {
     clearInterval(sessionPollTimer);
@@ -524,31 +586,70 @@ async function pollRunningStates() {
   }
 
   let changed = false;
+  let shouldSyncCloud = false;
   const now = Date.now();
   const updatedGames = [];
 
   for (const game of state.games) {
-    const running = await isProcessRunning(game.processName);
+    const processState = await getProcessState(game.processName);
+    const running = processState.running;
     let updated = game;
 
     if (running && !game.currentlyRunning) {
+      const nextProcessStartedAt = processState.startedAt || game.processStartedAt || new Date(now).toISOString();
+      const sameProcess =
+        Boolean(game.processStartedAt) &&
+        Boolean(processState.startedAt) &&
+        new Date(game.processStartedAt).getTime() === new Date(processState.startedAt).getTime();
+      const resumedSessionStart = sameProcess && game.trackedUntilAt
+        ? game.trackedUntilAt
+        : nextProcessStartedAt;
+
       updated = {
         ...game,
         currentlyRunning: true,
-        sessionStartedAt: new Date(now).toISOString()
+        sessionStartedAt: resumedSessionStart,
+        processStartedAt: nextProcessStartedAt,
+        trackedUntilAt: null
       };
       changed = true;
     } else if (!running && game.currentlyRunning) {
-      const startedAt = game.sessionStartedAt ? new Date(game.sessionStartedAt).getTime() : now;
-      const elapsedSeconds = Math.max(0, Math.round((now - startedAt) / 1000));
+      const elapsedSeconds = getElapsedSeconds(game.sessionStartedAt, now);
       updated = {
         ...game,
         currentlyRunning: false,
         sessionStartedAt: null,
         totalPlaySeconds: Number(game.totalPlaySeconds || 0) + elapsedSeconds,
-        lastPlayedAt: new Date(now).toISOString()
+        lastPlayedAt: new Date(now).toISOString(),
+        processStartedAt: null,
+        trackedUntilAt: null
       };
       changed = true;
+      shouldSyncCloud = true;
+    } else if (!running && (game.processStartedAt || game.trackedUntilAt)) {
+      updated = {
+        ...game,
+        processStartedAt: null,
+        trackedUntilAt: null
+      };
+      changed = true;
+    } else if (running && game.currentlyRunning && processState.startedAt && game.processStartedAt) {
+      const existingStartMs = new Date(game.processStartedAt).getTime();
+      const currentStartMs = new Date(processState.startedAt).getTime();
+
+      if (!Number.isNaN(existingStartMs) && !Number.isNaN(currentStartMs) && existingStartMs !== currentStartMs) {
+        const elapsedSeconds = getElapsedSeconds(game.sessionStartedAt, now);
+        updated = {
+          ...game,
+          totalPlaySeconds: Number(game.totalPlaySeconds || 0) + elapsedSeconds,
+          currentlyRunning: true,
+          sessionStartedAt: processState.startedAt,
+          processStartedAt: processState.startedAt,
+          trackedUntilAt: null
+        };
+        changed = true;
+        shouldSyncCloud = true;
+      }
     }
 
     updatedGames.push(updated);
@@ -559,7 +660,7 @@ async function pollRunningStates() {
   }
 
   state.games = updatedGames;
-  await persistState({ syncCloud: false });
+  await persistState({ syncCloud: shouldSyncCloud && driveService.isAuthenticated() });
 }
 
 function runDiscoveryScan(scanRoots) {
@@ -979,6 +1080,7 @@ app.whenReady()
     await stateStore.cleanupTempBackups();
     syncService.setGames(state.games);
     startSessionPolling();
+    await pollRunningStates();
     configureAutoUpdater();
     await createWindow();
     if (app.isPackaged) {
@@ -996,16 +1098,31 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", async () => {
-  if (sessionPollTimer) {
-    clearInterval(sessionPollTimer);
-    sessionPollTimer = null;
+app.on("before-quit", (event) => {
+  if (isQuitting) {
+    return;
   }
 
-  if (discoveryWorker) {
-    await discoveryWorker.terminate();
-    discoveryWorker = null;
-  }
+  event.preventDefault();
+  isQuitting = true;
 
-  await syncService.stop();
+  void (async () => {
+    if (sessionPollTimer) {
+      clearInterval(sessionPollTimer);
+      sessionPollTimer = null;
+    }
+
+    await flushRunningSessions({ preserveRunningProcesses: true });
+
+    if (discoveryWorker) {
+      await discoveryWorker.terminate();
+      discoveryWorker = null;
+    }
+
+    await syncService.stop();
+    app.exit(0);
+  })().catch((error) => {
+    console.error("No se pudo cerrar la aplicacion limpiamente:", error);
+    app.exit(1);
+  });
 });

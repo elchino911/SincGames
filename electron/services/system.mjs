@@ -6,16 +6,60 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-export async function isProcessRunning(processName) {
+function normalizeProcessLookupName(processName) {
   if (!processName) {
+    return "";
+  }
+
+  return path.basename(processName, path.extname(processName)).trim();
+}
+
+export async function getProcessState(processName) {
+  const lookupName = normalizeProcessLookupName(processName);
+  if (!lookupName) {
+    return {
+      running: false,
+      startedAt: null
+    };
+  }
+
+  try {
+    const script = [
+      "$ErrorActionPreference='Stop'",
+      `$proc = Get-Process -Name '${lookupName.replace(/'/g, "''")}' -ErrorAction SilentlyContinue | Sort-Object StartTime | Select-Object -First 1`,
+      "if ($null -eq $proc) { '{\"running\":false,\"startedAt\":null}' }",
+      "else { [pscustomobject]@{ running = $true; startedAt = $proc.StartTime.ToUniversalTime().ToString('o') } | ConvertTo-Json -Compress }"
+    ].join("; ");
+
+    const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-Command", script], {
+      windowsHide: true
+    });
+    const parsed = JSON.parse(stdout.trim());
+
+    return {
+      running: Boolean(parsed.running),
+      startedAt: parsed.startedAt || null
+    };
+  } catch {
+    return {
+      running: await isProcessRunning(processName),
+      startedAt: null
+    };
+  }
+}
+
+export async function isProcessRunning(processName) {
+  const lookupName = normalizeProcessLookupName(processName);
+  if (!lookupName) {
     return false;
   }
 
-  const { stdout } = await execFileAsync("tasklist", ["/FI", `IMAGENAME eq ${processName}`], {
+  const taskImageName = `${lookupName}.exe`;
+  const { stdout } = await execFileAsync("tasklist", ["/FI", `IMAGENAME eq ${taskImageName}`], {
     windowsHide: true
   });
 
-  return stdout.toLowerCase().includes(processName.toLowerCase());
+  return stdout.toLowerCase().includes(taskImageName.toLowerCase());
 }
 
 export async function collectFiles(rootDir, patterns = []) {

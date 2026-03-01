@@ -257,6 +257,7 @@ function App() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatusPayload | null>(null);
   const [startupDismissed, setStartupDismissed] = useState(false);
+  const [liveNow, setLiveNow] = useState(() => Date.now());
 
   useEffect(() => {
     if (!bridge) return;
@@ -315,6 +316,36 @@ function App() {
     });
   }, [bootstrap]);
 
+  useEffect(() => {
+    if (!games.some((game) => game.currentlyRunning && game.sessionStartedAt)) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setLiveNow(Date.now());
+    }, 1000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [games]);
+
+  const getEffectivePlaySeconds = (game?: GameRecord | null) => {
+    if (!game) return 0;
+
+    const baseSeconds = Number(game.totalPlaySeconds || 0);
+    if (!game.currentlyRunning || !game.sessionStartedAt) {
+      return baseSeconds;
+    }
+
+    const startedAtMs = new Date(game.sessionStartedAt).getTime();
+    if (Number.isNaN(startedAtMs)) {
+      return baseSeconds;
+    }
+
+    return baseSeconds + Math.max(0, Math.round((liveNow - startedAtMs) / 1000));
+  };
+
   const filteredGames = useMemo(() => {
     const needle = libraryFilter.trim().toLowerCase();
     if (!needle) return games;
@@ -331,9 +362,9 @@ function App() {
       games: games.length,
       local: games.filter((game) => game.latestLocalSave).length,
       remote: games.filter((game) => game.latestRemoteSave).length,
-      time: games.reduce((sum, game) => sum + Number(game.totalPlaySeconds || 0), 0)
+      time: games.reduce((sum, game) => sum + getEffectivePlaySeconds(game), 0)
     }),
-    [games]
+    [games, liveNow]
   );
 
   const showStartupOverlay = Boolean(
@@ -616,7 +647,7 @@ function App() {
             <h4>Estado</h4>
             <div className="steam-stat-list">
               <div><span>Ultima sesion</span><strong>{formatDate(selectedGame.lastPlayedAt)}</strong></div>
-              <div><span>Tiempo jugado</span><strong>{formatDuration(selectedGame.totalPlaySeconds)}</strong></div>
+              <div><span>Tiempo jugado</span><strong>{formatDuration(getEffectivePlaySeconds(selectedGame))}</strong></div>
               <div><span>Save local</span><strong>{formatDate(selectedGame.latestLocalSave?.createdAt)}</strong></div>
               <div><span>Save remoto</span><strong>{formatDate(selectedGame.latestRemoteSave?.createdAt)}</strong></div>
             </div>
@@ -941,7 +972,7 @@ function App() {
             </div>
             <div className="game-hero-metrics">
               <div><span>Ultima sesion</span><strong>{formatDate(selectedGame?.lastPlayedAt)}</strong></div>
-              <div><span>Tiempo jugado</span><strong>{formatDuration(selectedGame?.totalPlaySeconds)}</strong></div>
+              <div><span>Tiempo jugado</span><strong>{formatDuration(getEffectivePlaySeconds(selectedGame))}</strong></div>
               <div><span>Estado cloud</span><strong>{selectedGame?.latestRemoteSave ? "Actualizado" : "Pendiente"}</strong></div>
             </div>
           </div>
@@ -964,7 +995,7 @@ function App() {
           </div>
           <div className="action-status">
             <span>Tiempo de juego</span>
-            <strong>{formatDuration(selectedGame?.totalPlaySeconds)}</strong>
+            <strong>{formatDuration(getEffectivePlaySeconds(selectedGame))}</strong>
           </div>
         </section>
 
@@ -1037,7 +1068,7 @@ function App() {
                 <div className="steam-library-icon">{game.title.slice(0, 1).toUpperCase()}</div>
                 <div className="steam-library-copy">
                   <strong>{game.title}</strong>
-                  <span>{game.currentlyRunning ? "En ejecucion" : formatDuration(game.totalPlaySeconds)}</span>
+                  <span>{game.currentlyRunning ? `En ejecucion · ${formatDuration(getEffectivePlaySeconds(game))}` : formatDuration(getEffectivePlaySeconds(game))}</span>
                 </div>
               </button>
             ))}

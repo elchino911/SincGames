@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("sincgames", {
   getBootstrap: () => ipcRenderer.invoke("app:bootstrap"),
+  saveUiPreferences: (payload) => ipcRenderer.invoke("ui:save-preferences", payload),
   openExternalUrl: (url) => ipcRenderer.invoke("app:open-external", url),
   listTorrentDownloads: () => ipcRenderer.invoke("torrent:list"),
   fetchTorrentRelease: (url) => ipcRenderer.invoke("torrent:fetch-release", url),
@@ -13,6 +14,7 @@ contextBridge.exposeInMainWorld("sincgames", {
   openTorrentFolder: (downloadId) => ipcRenderer.invoke("torrent:open-folder", downloadId),
   connectGoogleDrive: () => ipcRenderer.invoke("drive:connect"),
   pickDirectory: () => ipcRenderer.invoke("dialog:pick-directory"),
+  pickImage: () => ipcRenderer.invoke("dialog:pick-image"),
   addScanRoot: (directoryPath) => ipcRenderer.invoke("settings:add-scan-root", directoryPath),
   removeScanRoot: (directoryPath) => ipcRenderer.invoke("settings:remove-scan-root", directoryPath),
   setOfflineBackupDir: (directoryPath) => ipcRenderer.invoke("settings:set-offline-backup-dir", directoryPath),
@@ -21,7 +23,9 @@ contextBridge.exposeInMainWorld("sincgames", {
   addGameFromCandidate: (candidateId) => ipcRenderer.invoke("game:add-from-candidate", candidateId),
   createManualGame: (payload) => ipcRenderer.invoke("game:create-manual", payload),
   updateGame: (payload) => ipcRenderer.invoke("game:update", payload),
+  getGameIcon: (gameId) => ipcRenderer.invoke("game:get-icon", gameId),
   launchGame: (gameId) => ipcRenderer.invoke("game:launch", gameId),
+  closeGame: (gameId) => ipcRenderer.invoke("game:close", gameId),
   backupNow: (gameId) => ipcRenderer.invoke("sync:backup-now", gameId),
   restoreLatestRemote: (gameId) => ipcRenderer.invoke("game:restore-latest", gameId),
   onSyncEvent: (callback) => {

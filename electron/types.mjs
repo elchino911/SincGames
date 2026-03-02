@@ -2,6 +2,7 @@
  * @typedef {{
  *   id: string;
  *   title: string;
+ *   maxBackups?: number;
  *   savePath: string;
  *   processName: string;
  *   executablePath?: string;

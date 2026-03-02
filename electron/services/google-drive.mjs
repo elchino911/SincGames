@@ -320,6 +320,85 @@ export class GoogleDriveService {
     return JSON.parse(content.data);
   }
 
+  async listFiles({ folderId }) {
+    const files = [];
+    let pageToken;
+
+    do {
+      const response = await this.drive.files.list({
+        q: [`'${folderId}' in parents`, "trashed = false"].join(" and "),
+        fields: "nextPageToken, files(id, name, createdTime)",
+        pageSize: 1000,
+        pageToken
+      });
+
+      files.push(...(response.data.files || []));
+      pageToken = response.data.nextPageToken;
+    } while (pageToken);
+
+    return files;
+  }
+
+  async loadJsonFile(fileId) {
+    const content = await this.drive.files.get(
+      { fileId, alt: "media" },
+      { responseType: "text" }
+    );
+
+    return JSON.parse(content.data);
+  }
+
+  async deleteFile(fileId) {
+    if (!fileId) {
+      return;
+    }
+
+    await this.drive.files.delete({ fileId });
+  }
+
+  async pruneBackups(gameId, keepCount = 3) {
+    const safeKeepCount = Math.max(1, Number(keepCount || 3));
+    const { backupsId } = await this.ensureAppFolders();
+    const gameFolderId = await this.ensureFolder(gameId, backupsId);
+    const metadataId = await this.ensureFolder("metadata", gameFolderId);
+    const metadataFiles = await this.listFiles({ folderId: metadataId });
+    const metadataEntries = [];
+
+    for (const file of metadataFiles) {
+      if (!file.name?.toLowerCase().endsWith(".json")) {
+        continue;
+      }
+
+      try {
+        const metadata = await this.loadJsonFile(file.id);
+        metadataEntries.push({
+          fileId: file.id,
+          createdTime: file.createdTime || null,
+          metadata
+        });
+      } catch {
+        // Ignora metadata dañada para no romper el resto del flujo.
+      }
+    }
+
+    metadataEntries.sort((left, right) => {
+      const leftTime = new Date(left.metadata?.createdAt || left.createdTime || 0).getTime();
+      const rightTime = new Date(right.metadata?.createdAt || right.createdTime || 0).getTime();
+      return rightTime - leftTime;
+    });
+
+    const staleEntries = metadataEntries.slice(safeKeepCount);
+    for (const entry of staleEntries) {
+      await this.deleteFile(entry.metadata?.driveFileId);
+      await this.deleteFile(entry.metadata?.metadataFileId || entry.fileId);
+    }
+
+    return {
+      kept: Math.min(metadataEntries.length, safeKeepCount),
+      deleted: staleEntries.length
+    };
+  }
+
   async downloadFile({ fileId, targetPath }) {
     await fs.promises.mkdir(path.dirname(targetPath), { recursive: true });
 

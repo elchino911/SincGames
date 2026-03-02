@@ -9,11 +9,13 @@ import type {
   SyncEventPayload,
   TorrentDownloadPayload,
   TorrentDownloadRecord,
-  TorrentReleaseSourceRecord
+  TorrentReleaseSourceRecord,
+  UiPreferences
 } from "./vite-env";
 
 type TopView = "library" | "discovery" | "downloads" | "cloud" | "activity";
 type LibraryTab = "summary" | "saves" | "paths" | "manage";
+type LibrarySort = "added-desc" | "play-desc" | "alpha-asc";
 
 type GameFormState = {
   title: string;
@@ -24,6 +26,7 @@ type GameFormState = {
   filePatterns: string;
   launchType: LaunchType;
   launchTarget: string;
+  bannerPath: string;
 };
 
 type OAuthFormState = GoogleOAuthPayload;
@@ -36,7 +39,8 @@ const emptyForm = (): GameFormState => ({
   installRoot: "",
   filePatterns: "**/*",
   launchType: "exe",
-  launchTarget: ""
+  launchTarget: "",
+  bannerPath: ""
 });
 
 const toFormState = (game: GameRecord | null): GameFormState =>
@@ -49,7 +53,8 @@ const toFormState = (game: GameRecord | null): GameFormState =>
         installRoot: game.installRoot || "",
         filePatterns: game.filePatterns.join(", "),
         launchType: game.launchType || "exe",
-        launchTarget: game.launchTarget || game.executablePath || ""
+        launchTarget: game.launchTarget || game.executablePath || "",
+        bannerPath: game.bannerPath || ""
       }
     : emptyForm();
 
@@ -94,6 +99,13 @@ const formatRate = (value?: number) => `${formatBytes(value)}/s`;
 
 const findMagnetUri = (uris: string[]) => uris.find((item) => item.startsWith("magnet:?")) || null;
 
+const toFileUrl = (value?: string | null) => {
+  if (!value) return null;
+  if (/^(https?:|file:)/i.test(value)) return value;
+  const normalized = value.replace(/\\/g, "/");
+  return encodeURI(normalized.startsWith("/") ? `file://${normalized}` : `file:///${normalized}`);
+};
+
 const formatClockDuration = (seconds?: number | null) => {
   const total = Math.max(0, Math.round(seconds || 0));
   const hours = Math.floor(total / 3600);
@@ -110,6 +122,12 @@ const formatClockDuration = (seconds?: number | null) => {
 
   return `${remainder}s`;
 };
+
+const librarySortOptions: Array<{ id: LibrarySort; label: string }> = [
+  { id: "added-desc", label: "Recien agregados" },
+  { id: "play-desc", label: "Mas jugados" },
+  { id: "alpha-asc", label: "A-Z" }
+];
 
 const getTorrentElapsedSeconds = (download: TorrentDownloadRecord, now: number) => {
   const startedAt = new Date(download.createdAt).getTime();
@@ -321,6 +339,10 @@ function App() {
   const [libraryTab, setLibraryTab] = useState<LibraryTab>("summary");
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [libraryFilter, setLibraryFilter] = useState("");
+  const [librarySort, setLibrarySort] = useState<LibrarySort>("added-desc");
+  const [librarySortMenuOpen, setLibrarySortMenuOpen] = useState(false);
+  const [discoveryCandidateFilter, setDiscoveryCandidateFilter] = useState("");
+  const [saveRetentionInput, setSaveRetentionInput] = useState("3");
   const [newRoot, setNewRoot] = useState("");
   const [manualForm, setManualForm] = useState<GameFormState>(emptyForm);
   const [editForm, setEditForm] = useState<GameFormState>(emptyForm);
@@ -344,6 +366,8 @@ function App() {
   const [torrentNotice, setTorrentNotice] = useState<string | null>(null);
   const [startupDismissed, setStartupDismissed] = useState(false);
   const [liveNow, setLiveNow] = useState(() => Date.now());
+  const [gameIconCache, setGameIconCache] = useState<Record<string, { source: string; dataUrl: string | null }>>({});
+  const [uiPreferencesHydrated, setUiPreferencesHydrated] = useState(false);
 
   useEffect(() => {
     if (!bridge) return;
@@ -357,7 +381,7 @@ function App() {
         setBootstrap(payload);
         setTorrentDownloads(payload.torrentDownloads || []);
         setTorrentSources(payload.torrentReleaseSources || []);
-        setSelectedGameId((current) => current || payload.games[0]?.id || null);
+        setSelectedGameId((current) => current || payload.uiPreferences?.selectedGameId || payload.games[0]?.id || null);
       })
       .catch((error) => {
         if (!mounted) return;
@@ -373,7 +397,7 @@ function App() {
       setTorrentSources(payload.torrentReleaseSources || []);
       setSelectedGameId((current) => {
         if (current && payload.games.some((game) => game.id === current)) return current;
-        return payload.games[0]?.id || null;
+        return payload.uiPreferences?.selectedGameId || payload.games[0]?.id || null;
       });
     });
     const offDiscovery = bridge.onDiscoveryStatus((payload) => {
@@ -392,14 +416,89 @@ function App() {
     };
   }, [bridge]);
 
+  useEffect(() => {
+    if (!librarySortMenuOpen) return;
+
+    const closeMenu = () => {
+      setLibrarySortMenuOpen(false);
+    };
+
+    window.addEventListener("click", closeMenu);
+    window.addEventListener("blur", closeMenu);
+
+    return () => {
+      window.removeEventListener("click", closeMenu);
+      window.removeEventListener("blur", closeMenu);
+    };
+  }, [librarySortMenuOpen]);
+
+  useEffect(() => {
+    if (!bridge || !uiPreferencesHydrated) return;
+
+    const timer = window.setTimeout(() => {
+      const payload: Partial<UiPreferences> = {
+        topView,
+        libraryTab,
+        selectedGameId,
+        libraryFilter,
+        librarySort,
+        discoveryCandidateFilter,
+        selectedTorrentSourceUrl,
+        selectedTorrentIndex,
+        torrentOutputDir,
+        startupDismissed
+      };
+
+      void bridge.saveUiPreferences(payload);
+    }, 180);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    bridge,
+    uiPreferencesHydrated,
+    topView,
+    libraryTab,
+    selectedGameId,
+    libraryFilter,
+    librarySort,
+    discoveryCandidateFilter,
+    selectedTorrentSourceUrl,
+    selectedTorrentIndex,
+    torrentOutputDir,
+    startupDismissed
+  ]);
+
   const games = bootstrap?.games || [];
   const selectedGame = games.find((game) => game.id === selectedGameId) || games[0] || null;
   const scanRoots = bootstrap?.scanRoots || [];
   const discoveryCandidates = bootstrap?.discoveryCandidates || [];
 
   useEffect(() => {
+    if (!bootstrap || uiPreferencesHydrated) return;
+
+    const preferences = bootstrap.uiPreferences;
+    setTopView(preferences.topView || "library");
+    setLibraryTab(preferences.libraryTab || "summary");
+    setSelectedGameId(preferences.selectedGameId || bootstrap.games[0]?.id || null);
+    setLibraryFilter(preferences.libraryFilter || "");
+    setLibrarySort(preferences.librarySort || "added-desc");
+    setDiscoveryCandidateFilter(preferences.discoveryCandidateFilter || "");
+    setSelectedTorrentSourceUrl(preferences.selectedTorrentSourceUrl || null);
+    setSelectedTorrentIndex(Number.isInteger(preferences.selectedTorrentIndex) ? preferences.selectedTorrentIndex : 0);
+    setTorrentOutputDir(preferences.torrentOutputDir || "");
+    setStartupDismissed(Boolean(preferences.startupDismissed));
+    setUiPreferencesHydrated(true);
+  }, [bootstrap, uiPreferencesHydrated]);
+
+  useEffect(() => {
     setEditForm(toFormState(selectedGame));
   }, [selectedGame]);
+
+  useEffect(() => {
+    setSaveRetentionInput(String(selectedGame?.maxBackups || 3));
+  }, [selectedGame?.id, selectedGame?.maxBackups]);
 
   useEffect(() => {
     if (!bootstrap) return;
@@ -409,6 +508,55 @@ function App() {
       redirectUri: bootstrap.env.googleOauthRedirectUri || "http://127.0.0.1:42813/oauth2/callback"
     });
   }, [bootstrap]);
+
+  useEffect(() => {
+    if (!bridge || !games.length) return;
+
+    const pending = games.filter((game) => {
+      const source = game.executablePath || "";
+      return (gameIconCache[game.id]?.source || "") !== source;
+    });
+
+    if (!pending.length) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void Promise.all(
+      pending.map(async (game) => {
+        try {
+          return {
+            gameId: game.id,
+            source: game.executablePath || "",
+            dataUrl: game.executablePath ? await bridge.getGameIcon(game.id) : null
+          };
+        } catch {
+          return {
+            gameId: game.id,
+            source: game.executablePath || "",
+            dataUrl: null
+          };
+        }
+      })
+    ).then((results) => {
+      if (cancelled) return;
+      setGameIconCache((current) => {
+        const next = { ...current };
+        for (const result of results) {
+          next[result.gameId] = {
+            source: result.source,
+            dataUrl: result.dataUrl
+          };
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [bridge, gameIconCache, games]);
 
   useEffect(() => {
     const hasRunningGame = games.some((game) => game.currentlyRunning && game.sessionStartedAt);
@@ -445,9 +593,55 @@ function App() {
 
   const filteredGames = useMemo(() => {
     const needle = libraryFilter.trim().toLowerCase();
-    if (!needle) return games;
-    return games.filter((game) => [game.title, game.processName, game.savePath].join(" ").toLowerCase().includes(needle));
-  }, [games, libraryFilter]);
+    const indexedGames = games.map((game, index) => ({ game, index }));
+    const matchingGames = needle
+      ? indexedGames.filter(({ game }) => [game.title, game.processName, game.savePath].join(" ").toLowerCase().includes(needle))
+      : indexedGames;
+
+    const sortedGames = [...matchingGames].sort((left, right) => {
+      if (librarySort === "play-desc") {
+        const playDiff = getEffectivePlaySeconds(right.game) - getEffectivePlaySeconds(left.game);
+        if (playDiff !== 0) return playDiff;
+      }
+
+      if (librarySort === "alpha-asc") {
+        const titleDiff = left.game.title.localeCompare(right.game.title, "es", { sensitivity: "base" });
+        if (titleDiff !== 0) return titleDiff;
+      }
+
+      if (librarySort === "added-desc") {
+        const leftAddedAt = left.game.addedAt ? new Date(left.game.addedAt).getTime() : NaN;
+        const rightAddedAt = right.game.addedAt ? new Date(right.game.addedAt).getTime() : NaN;
+        if (!Number.isNaN(leftAddedAt) && !Number.isNaN(rightAddedAt) && rightAddedAt !== leftAddedAt) {
+          return rightAddedAt - leftAddedAt;
+        }
+      }
+
+      return left.index - right.index;
+    });
+
+    return sortedGames.map(({ game }) => game);
+  }, [games, libraryFilter, librarySort, liveNow]);
+
+  const filteredDiscoveryCandidates = useMemo(() => {
+    const needle = discoveryCandidateFilter.trim().toLowerCase();
+    if (!needle) {
+      return discoveryCandidates;
+    }
+
+    return discoveryCandidates.filter((candidate) =>
+      [
+        candidate.title,
+        candidate.processName,
+        candidate.suggestedSavePath,
+        candidate.executablePath,
+        candidate.installRoot
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle)
+    );
+  }, [discoveryCandidateFilter, discoveryCandidates]);
 
   const selectedActivity = useMemo(
     () => activity.filter((item) => !selectedGame || item.gameId === selectedGame.id),
@@ -474,6 +668,12 @@ function App() {
   const showStartupOverlay = Boolean(
     bootstrap?.startup.requiresStorageChoice && !startupDismissed
   );
+  const selectedGameBannerUrl = toFileUrl(selectedGame?.bannerPath);
+  const selectedLibrarySortLabel = librarySortOptions.find((option) => option.id === librarySort)?.label || "Ordenar";
+  const selectedGameBackupSizeBytes =
+    selectedGame?.latestLocalSave?.sizeBytes || selectedGame?.latestRemoteSave?.sizeBytes || 0;
+  const selectedGameMaxBackups = selectedGame?.maxBackups || 3;
+  const selectedGameEstimatedDriveBytes = selectedGameBackupSizeBytes * selectedGameMaxBackups;
 
   useEffect(() => {
     if (!torrentSources.length) {
@@ -507,6 +707,21 @@ function App() {
     setManualForm((current) => ({ ...current, [field]: value }));
   const updateEdit = (field: keyof GameFormState, value: string) =>
     setEditForm((current) => ({ ...current, [field]: value }));
+  const getGameIconDataUrl = (game?: GameRecord | null) => (game ? gameIconCache[game.id]?.dataUrl || null : null);
+
+  const renderGameIcon = (game: GameRecord | null, className: string) => {
+    if (!game) {
+      return <div className={className}>?</div>;
+    }
+
+    const iconDataUrl = getGameIconDataUrl(game);
+
+    return (
+      <div className={className}>
+        {iconDataUrl ? <img src={iconDataUrl} alt="" /> : game.title.slice(0, 1).toUpperCase()}
+      </div>
+    );
+  };
 
   const pickDirectoryInto = async (field: keyof GameFormState, mode: "manual" | "edit") => {
     if (!bridge) return;
@@ -514,6 +729,14 @@ function App() {
     if (!directory) return;
     if (mode === "manual") updateManual(field, directory);
     else updateEdit(field, directory);
+  };
+
+  const pickImageInto = async (field: keyof GameFormState, mode: "manual" | "edit") => {
+    if (!bridge) return;
+    const imagePath = await bridge.pickImage();
+    if (!imagePath) return;
+    if (mode === "manual") updateManual(field, imagePath);
+    else updateEdit(field, imagePath);
   };
 
   const addScanRoot = async () => {
@@ -569,7 +792,8 @@ function App() {
         installRoot: manualForm.installRoot,
         filePatterns: splitPatterns(manualForm.filePatterns),
         launchType: manualForm.launchType,
-        launchTarget: manualForm.launchTarget
+        launchTarget: manualForm.launchTarget,
+        bannerPath: manualForm.bannerPath
       });
       setManualForm(emptyForm());
     } finally {
@@ -591,7 +815,8 @@ function App() {
         installRoot: editForm.installRoot,
         filePatterns: splitPatterns(editForm.filePatterns),
         launchType: editForm.launchType,
-        launchTarget: editForm.launchTarget
+        launchTarget: editForm.launchTarget,
+        bannerPath: editForm.bannerPath
       });
     } finally {
       setBusyAction(null);
@@ -606,6 +831,55 @@ function App() {
     } finally {
       setBusyAction(null);
     }
+  };
+
+  const closeGame = async (gameId: string) => {
+    if (!bridge) return;
+    setBusyAction(`close:${gameId}`);
+    try {
+      await bridge.closeGame(gameId);
+    } catch (error) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId,
+          message: error instanceof Error ? error.message : "No se pudo cerrar el juego."
+        },
+        ...current
+      ]);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const renderPrimaryGameAction = (game: GameRecord | null) => {
+    if (!game) {
+      return (
+        <button className="play-button" disabled>
+          JUGAR
+        </button>
+      );
+    }
+
+    const isRunning = Boolean(game.currentlyRunning);
+    const isBusy = busyAction === `launch:${game.id}` || busyAction === `close:${game.id}`;
+
+    return (
+      <button
+        className={`play-button ${isRunning ? "play-button-close" : ""}`}
+        onClick={() => void (isRunning ? closeGame(game.id) : launchGame(game.id))}
+        disabled={isBusy}
+      >
+        {isRunning ? (
+          <>
+            <span className="play-button-icon">X</span>
+            CERRAR
+          </>
+        ) : (
+          "JUGAR"
+        )}
+      </button>
+    );
   };
 
   const restoreLatest = async (gameId: string) => {
@@ -632,6 +906,21 @@ function App() {
         },
         ...current
       ]);
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const saveRetentionPolicy = async (gameId: string) => {
+    if (!bridge || !selectedGame) return;
+    const nextValue = Math.min(20, Math.max(1, Number(saveRetentionInput || 3)));
+    setBusyAction(`retention:${gameId}`);
+    try {
+      await bridge.updateGame({
+        gameId,
+        maxBackups: nextValue
+      });
+      setSaveRetentionInput(String(nextValue));
     } finally {
       setBusyAction(null);
     }
@@ -953,18 +1242,12 @@ function App() {
           <article className="steam-card steam-feature-card steam-card-span">
             <h4>Resumen del juego</h4>
             <div className="steam-feature-layout">
-              <div className="steam-media-tile">{selectedGame.title.slice(0, 1).toUpperCase()}</div>
+              {renderGameIcon(selectedGame, "steam-media-tile")}
               <div className="steam-feature-copy">
                 <p>Sincroniza saves al cerrar el juego y permite restaurar la ultima copia remota con respaldo temporal previo.</p>
-                <div className="steam-actions-row">
-                  <button className="play-button" onClick={() => void launchGame(selectedGame.id)} disabled={busyAction === `launch:${selectedGame.id}`}>
-                    JUGAR
-                  </button>
+                <div className="steam-actions-row summary-card-actions">
                   <button className="secondary-button" onClick={() => void restoreLatest(selectedGame.id)} disabled={!selectedGame.latestRemoteSave || busyAction === `restore:${selectedGame.id}`}>
                     Restaurar save
-                  </button>
-                  <button className="secondary-button" onClick={() => void backupNow(selectedGame.id)} disabled={busyAction === `backup:${selectedGame.id}`}>
-                    Respaldar ahora
                   </button>
                 </div>
               </div>
@@ -983,7 +1266,7 @@ function App() {
 
           <article className="steam-card steam-card-span">
             <h4>Actividad reciente</h4>
-            <div className="steam-feed">
+            <div className="steam-feed activity-feed-scroll">
               {selectedActivity.slice(0, 8).map((item, index) => (
                 <article className={`steam-feed-item tone-${item.type === "snapshot" ? "success" : item.type}`} key={`${item.message}-${index}`}>
                   <span>{formatDate(item.snapshot?.createdAt || null)}</span>
@@ -1005,7 +1288,7 @@ function App() {
             <div className="steam-stat-list">
               <div><span>Fecha</span><strong>{formatDate(selectedGame.latestLocalSave?.createdAt)}</strong></div>
               <div><span>Archivo</span><strong>{selectedGame.latestLocalSave?.archiveName || "Sin snapshot local"}</strong></div>
-              <div><span>Tamano</span><strong>{selectedGame.latestLocalSave ? `${Math.round(selectedGame.latestLocalSave.sizeBytes / 1024)} KB` : "Sin datos"}</strong></div>
+              <div><span>Tamano</span><strong>{selectedGame.latestLocalSave ? formatBytes(selectedGame.latestLocalSave.sizeBytes) : "Sin datos"}</strong></div>
             </div>
           </article>
           <article className="steam-card">
@@ -1014,6 +1297,35 @@ function App() {
               <div><span>Fecha</span><strong>{formatDate(selectedGame.latestRemoteSave?.createdAt)}</strong></div>
               <div><span>Archivo</span><strong>{selectedGame.latestRemoteSave?.archiveName || "Sin backup remoto"}</strong></div>
               <div><span>Equipo</span><strong>{selectedGame.latestRemoteSave?.deviceLabel || "Sin datos"}</strong></div>
+              <div><span>Tamano</span><strong>{selectedGame.latestRemoteSave ? formatBytes(selectedGame.latestRemoteSave.sizeBytes) : "Sin datos"}</strong></div>
+            </div>
+          </article>
+          <article className="steam-card steam-card-span">
+            <h4>Politica de respaldos</h4>
+            <div className="steam-stat-list">
+              <div><span>Tamano estimado por save</span><strong>{selectedGameBackupSizeBytes ? formatBytes(selectedGameBackupSizeBytes) : "Genera un save nuevo para estimar"}</strong></div>
+              <div><span>Maximo por juego</span><strong>{selectedGameMaxBackups}</strong></div>
+              <div><span>Uso estimado en Google Drive</span><strong>{selectedGameBackupSizeBytes ? formatBytes(selectedGameEstimatedDriveBytes) : "Sin estimacion"}</strong></div>
+              <div><span>Nota</span><strong>La estimacion usa el tamano del backup mas reciente y puede variar segun el contenido real.</strong></div>
+            </div>
+            <div className="save-retention-row">
+              <label className="save-retention-field">
+                <span>Respaldos maximos por juego</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={saveRetentionInput}
+                  onChange={(e) => setSaveRetentionInput(e.target.value)}
+                />
+              </label>
+              <button
+                className="secondary-button"
+                onClick={() => void saveRetentionPolicy(selectedGame.id)}
+                disabled={busyAction === `retention:${selectedGame.id}`}
+              >
+                Guardar politica
+              </button>
             </div>
           </article>
           <article className="steam-card steam-card-span">
@@ -1059,6 +1371,13 @@ function App() {
           </label>
           <label><span>Ejecutable</span><input value={editForm.executablePath} onChange={(e) => updateEdit("executablePath", e.target.value)} /></label>
           <label><span>Instalacion</span><input value={editForm.installRoot} onChange={(e) => updateEdit("installRoot", e.target.value)} /></label>
+          <label>
+            <span>Banner</span>
+            <div className="field-with-action">
+              <input value={editForm.bannerPath} onChange={(e) => updateEdit("bannerPath", e.target.value)} placeholder="Ruta a imagen .png, .jpg, .webp..." />
+              <button className="mini-button" type="button" onClick={() => void pickImageInto("bannerPath", "edit")}>Elegir</button>
+            </div>
+          </label>
           <label>
             <span>Tipo de lanzamiento</span>
             <select value={editForm.launchType} onChange={(e) => updateEdit("launchType", e.target.value)}>
@@ -1121,8 +1440,16 @@ function App() {
                   {discoveryStatus.phase} - {discoveryStatus.rootIndex}/{discoveryStatus.rootCount} roots - {discoveryStatus.processedExecutables} ejecutables
                 </p>
               ) : null}
-              <div className="steam-feed">
-                {discoveryCandidates.map((candidate) => (
+              <div className="discovery-candidates-toolbar">
+                <input
+                  className="discovery-candidates-search"
+                  placeholder="Buscar juego o proceso"
+                  value={discoveryCandidateFilter}
+                  onChange={(e) => setDiscoveryCandidateFilter(e.target.value)}
+                />
+              </div>
+              <div className="steam-feed discovery-candidates-scroll">
+                {filteredDiscoveryCandidates.map((candidate) => (
                   <article className="steam-feed-item" key={candidate.id}>
                     <span>{candidate.processName}</span>
                     <p>{candidate.title}</p>
@@ -1131,6 +1458,9 @@ function App() {
                   </article>
                 ))}
                 {!discoveryCandidates.length ? <p className="muted-copy">No hay candidatos en memoria.</p> : null}
+                {discoveryCandidates.length && !filteredDiscoveryCandidates.length ? (
+                  <p className="muted-copy">No hay candidatos que coincidan con la busqueda.</p>
+                ) : null}
               </div>
             </article>
 
@@ -1148,6 +1478,13 @@ function App() {
                 </label>
                 <label><span>Ejecutable</span><input value={manualForm.executablePath} onChange={(e) => updateManual("executablePath", e.target.value)} /></label>
                 <label><span>Instalacion</span><input value={manualForm.installRoot} onChange={(e) => updateManual("installRoot", e.target.value)} /></label>
+                <label>
+                  <span>Banner</span>
+                  <div className="field-with-action">
+                    <input value={manualForm.bannerPath} onChange={(e) => updateManual("bannerPath", e.target.value)} placeholder="Ruta a imagen .png, .jpg, .webp..." />
+                    <button className="mini-button" type="button" onClick={() => void pickImageInto("bannerPath", "manual")}>Elegir</button>
+                  </div>
+                </label>
                 <label>
                   <span>Tipo de lanzamiento</span>
                   <select value={manualForm.launchType} onChange={(e) => updateManual("launchType", e.target.value)}>
@@ -1229,13 +1566,6 @@ function App() {
                     Para SincGames usa este valor local. Debe coincidir exactamente con el valor esperado por la app cuando haces login.
                   </small>
                 </label>
-                <div className="help-tip oauth-fields-tip">
-                  <span>Que hace cada campo</span>
-                  <strong>Client ID identifica la app, Client Secret autoriza la app y Redirect URI recibe el retorno del login.</strong>
-                  <p className="muted-copy">
-                    Si copias mal alguno de estos tres valores, Google devolvera errores como <code>redirect_uri_mismatch</code> o bloqueo de acceso.
-                  </p>
-                </div>
                 <button className="secondary-button" type="submit" disabled={busyAction === "oauth-save"}>
                   Guardar credenciales
                 </button>
@@ -1507,14 +1837,20 @@ function App() {
 
     return (
       <>
-        <section className="game-hero">
+        <section className={`game-hero ${selectedGameBannerUrl ? "has-banner" : ""}`}>
+          {selectedGameBannerUrl ? (
+            <div
+              className="game-hero-media"
+              style={{ backgroundImage: `url("${selectedGameBannerUrl}")` }}
+            />
+          ) : null}
           <div className="game-hero-backdrop" />
           <div className="game-hero-orbit" />
           <div className="game-hero-content">
             <div className="game-hero-copy">
               <span className="section-kicker">En biblioteca</span>
               <h2>{selectedGame?.title || "Sin seleccion"}</h2>
-              <p>{selectedGame ? `${selectedGame.processName} · doble click en la lista izquierda para iniciar.` : "Selecciona un juego para ver detalle."}</p>
+              <p>{selectedGame ? `${selectedGame.processName} - doble click en la lista izquierda para iniciar.` : "Selecciona un juego para ver detalle."}</p>
               <div className="game-hero-tags">
                 <span>{selectedGame?.launchType?.toUpperCase() || "EXE"}</span>
                 <span>{selectedGame?.installed ? "INSTALADO" : "NO INSTALADO"}</span>
@@ -1531,9 +1867,7 @@ function App() {
         </section>
 
         <section className="steam-action-bar game-command-strip">
-          <button className="play-button" onClick={() => selectedGame && void launchGame(selectedGame.id)} disabled={!selectedGame || busyAction === `launch:${selectedGame?.id}`}>
-            JUGAR
-          </button>
+          {renderPrimaryGameAction(selectedGame)}
           <button className="secondary-button" onClick={() => selectedGame && void backupNow(selectedGame.id)} disabled={!selectedGame || busyAction === `backup:${selectedGame?.id}`}>
             Respaldar ahora
           </button>
@@ -1604,8 +1938,43 @@ function App() {
               <strong>Pagina principal</strong>
               <span>{totals.games} juegos y software</span>
             </div>
-            <div className="steam-sidebar-filter">
-              <input value={libraryFilter} onChange={(e) => setLibraryFilter(e.target.value)} placeholder="Buscar en biblioteca" />
+            <div className="steam-sidebar-filter-bar">
+              <div className="steam-sidebar-filter">
+                <input value={libraryFilter} onChange={(e) => setLibraryFilter(e.target.value)} placeholder="Buscar en biblioteca" />
+              </div>
+              <div
+                className="library-sort-popup"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button
+                  className="steam-filter-trigger"
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setLibrarySortMenuOpen((current) => !current);
+                  }}
+                >
+                  <span>Ordenar</span>
+                  <strong>{selectedLibrarySortLabel}</strong>
+                </button>
+                {librarySortMenuOpen ? (
+                  <div className="library-sort-menu">
+                    {librarySortOptions.map((option) => (
+                      <button
+                        key={option.id}
+                        className={`library-sort-option ${librarySort === option.id ? "active" : ""}`}
+                        type="button"
+                        onClick={() => {
+                          setLibrarySort(option.id);
+                          setLibrarySortMenuOpen(false);
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </div>
             <div className="steam-sidebar-links">
               <button className={`steam-mini-nav ${topView === "library" ? "active" : ""}`} onClick={() => setTopView("library")}>Juegos</button>
@@ -1625,10 +1994,10 @@ function App() {
                 }}
                 onDoubleClick={() => void launchGame(game.id)}
               >
-                <div className="steam-library-icon">{game.title.slice(0, 1).toUpperCase()}</div>
+                {renderGameIcon(game, "steam-library-icon")}
                 <div className="steam-library-copy">
                   <strong>{game.title}</strong>
-                  <span>{game.currentlyRunning ? `En ejecucion · ${formatDuration(getEffectivePlaySeconds(game))}` : formatDuration(getEffectivePlaySeconds(game))}</span>
+                  <span>{game.currentlyRunning ? `En ejecucion - ${formatDuration(getEffectivePlaySeconds(game))}` : formatDuration(getEffectivePlaySeconds(game))}</span>
                 </div>
               </button>
             ))}

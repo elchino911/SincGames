@@ -6,6 +6,18 @@ const defaultState = {
   discoveryCandidates: [],
   games: [],
   torrentReleaseSources: [],
+  uiPreferences: {
+    topView: "library",
+    libraryTab: "summary",
+    selectedGameId: null,
+    libraryFilter: "",
+    librarySort: "added-desc",
+    discoveryCandidateFilter: "",
+    selectedTorrentSourceUrl: null,
+    selectedTorrentIndex: 0,
+    torrentOutputDir: "",
+    startupDismissed: false
+  },
   manifestInfo: null,
   lastCloudSyncAt: null,
   offlineBackupDir: null,
@@ -37,6 +49,12 @@ export class StateStore {
         discoveryCandidates: Array.isArray(parsed.discoveryCandidates) ? parsed.discoveryCandidates : [],
         games: Array.isArray(parsed.games) ? parsed.games : [],
         torrentReleaseSources: Array.isArray(parsed.torrentReleaseSources) ? parsed.torrentReleaseSources : [],
+        uiPreferences: parsed.uiPreferences && typeof parsed.uiPreferences === "object"
+          ? {
+              ...defaultState.uiPreferences,
+              ...parsed.uiPreferences
+            }
+          : { ...defaultState.uiPreferences },
         offlineBackupDir: typeof parsed.offlineBackupDir === "string" ? parsed.offlineBackupDir : null,
         googleTokens: parsed.googleTokens && typeof parsed.googleTokens === "object" ? parsed.googleTokens : null
       };

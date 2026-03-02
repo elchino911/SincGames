@@ -4,6 +4,7 @@ declare global {
   interface Window {
     sincgames: {
       getBootstrap: () => Promise<BootstrapPayload>;
+      saveUiPreferences: (payload: Partial<UiPreferences>) => Promise<UiPreferences>;
       openExternalUrl: (url: string) => Promise<{ ok: boolean }>;
       listTorrentDownloads: () => Promise<TorrentDownloadRecord[]>;
       fetchTorrentRelease: (url: string) => Promise<TorrentReleaseSourceRecord>;
@@ -15,6 +16,7 @@ declare global {
       openTorrentFolder: (downloadId: string) => Promise<{ ok: boolean; outputDir: string }>;
       connectGoogleDrive: () => Promise<{ ok: boolean; authUrl: string | null }>;
       pickDirectory: () => Promise<string | null>;
+      pickImage: () => Promise<string | null>;
       addScanRoot: (directoryPath: string) => Promise<string[]>;
       removeScanRoot: (directoryPath: string) => Promise<string[]>;
       setOfflineBackupDir: (directoryPath: string) => Promise<string>;
@@ -23,7 +25,9 @@ declare global {
       addGameFromCandidate: (candidateId: string) => Promise<GameRecord>;
       createManualGame: (payload: ManualGamePayload) => Promise<GameRecord>;
       updateGame: (payload: GameUpdatePayload) => Promise<GameRecord>;
+      getGameIcon: (gameId: string) => Promise<string | null>;
       launchGame: (gameId: string) => Promise<{ ok: boolean }>;
+      closeGame: (gameId: string) => Promise<{ ok: boolean }>;
       backupNow: (gameId: string) => Promise<{ ok: boolean; snapshot: LocalSnapshot | null }>;
       restoreLatestRemote: (gameId: string) => Promise<{ restoredAt: string; tempBackupDir: string }>;
       onSyncEvent: (callback: (payload: SyncEventPayload) => void) => () => void;
@@ -62,6 +66,8 @@ export interface LocalSnapshot {
 export interface GameRecord {
   id: string;
   title: string;
+  addedAt?: string | null;
+  maxBackups?: number;
   savePath: string;
   processName: string;
   executablePath?: string;
@@ -69,6 +75,7 @@ export interface GameRecord {
   detectionSource?: "manual" | "manifest" | "scan";
   launchType?: LaunchType;
   launchTarget?: string;
+  bannerPath?: string;
   totalPlaySeconds?: number;
   currentlyRunning?: boolean;
   sessionStartedAt?: string | null;
@@ -103,6 +110,7 @@ export interface ManifestInfo {
 export interface ManualGamePayload {
   id?: string;
   title: string;
+  maxBackups?: number;
   savePath: string;
   processName: string;
   executablePath?: string;
@@ -110,11 +118,13 @@ export interface ManualGamePayload {
   filePatterns?: string[];
   launchType?: LaunchType;
   launchTarget?: string;
+  bannerPath?: string;
 }
 
 export interface GameUpdatePayload {
   gameId: string;
   title?: string;
+  maxBackups?: number;
   savePath?: string;
   processName?: string;
   executablePath?: string;
@@ -122,6 +132,7 @@ export interface GameUpdatePayload {
   filePatterns?: string[];
   launchType?: LaunchType;
   launchTarget?: string;
+  bannerPath?: string;
 }
 
 export interface BootstrapPayload {
@@ -153,6 +164,7 @@ export interface BootstrapPayload {
   manifestInfo: ManifestInfo | null;
   games: GameRecord[];
   torrentDownloads: TorrentDownloadRecord[];
+  uiPreferences: UiPreferences;
   design: {
     accent: string;
     accentSoft: string;
@@ -162,6 +174,19 @@ export interface BootstrapPayload {
   startup: {
     requiresStorageChoice: boolean;
   };
+}
+
+export interface UiPreferences {
+  topView: "library" | "discovery" | "downloads" | "cloud" | "activity";
+  libraryTab: "summary" | "saves" | "paths" | "manage";
+  selectedGameId: string | null;
+  libraryFilter: string;
+  librarySort: "added-desc" | "play-desc" | "alpha-asc";
+  discoveryCandidateFilter: string;
+  selectedTorrentSourceUrl: string | null;
+  selectedTorrentIndex: number;
+  torrentOutputDir: string;
+  startupDismissed: boolean;
 }
 
 export interface SyncEventPayload {

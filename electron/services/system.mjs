@@ -14,6 +14,11 @@ function normalizeProcessLookupName(processName) {
   return path.basename(processName, path.extname(processName)).trim();
 }
 
+function getTaskImageName(processName) {
+  const lookupName = normalizeProcessLookupName(processName);
+  return lookupName ? `${lookupName}.exe` : "";
+}
+
 export async function getProcessState(processName) {
   const lookupName = normalizeProcessLookupName(processName);
   if (!lookupName) {
@@ -49,17 +54,57 @@ export async function getProcessState(processName) {
 }
 
 export async function isProcessRunning(processName) {
-  const lookupName = normalizeProcessLookupName(processName);
-  if (!lookupName) {
+  const taskImageName = getTaskImageName(processName);
+  if (!taskImageName) {
     return false;
   }
 
-  const taskImageName = `${lookupName}.exe`;
   const { stdout } = await execFileAsync("tasklist", ["/FI", `IMAGENAME eq ${taskImageName}`], {
     windowsHide: true
   });
 
   return stdout.toLowerCase().includes(taskImageName.toLowerCase());
+}
+
+export async function stopProcess(processName) {
+  const lookupName = normalizeProcessLookupName(processName);
+  const taskImageName = getTaskImageName(processName);
+  if (!lookupName) {
+    throw new Error("El juego no tiene un proceso valido para cerrar.");
+  }
+
+  if (!(await isProcessRunning(processName))) {
+    throw new Error("El proceso no esta en ejecucion.");
+  }
+
+  try {
+    await execFileAsync("taskkill", ["/IM", taskImageName, "/T", "/F"], {
+      windowsHide: true
+    });
+  } catch {
+    const script = [
+      "$ErrorActionPreference='Stop'",
+      `$procs = Get-Process -Name '${lookupName.replace(/'/g, "''")}' -ErrorAction SilentlyContinue`,
+      "if ($null -eq $procs) { throw 'El proceso no esta en ejecucion.' }",
+      "$procs | Stop-Process -Force"
+    ].join("; ");
+
+    await execFileAsync("powershell.exe", ["-NoProfile", "-Command", script], {
+      windowsHide: true
+    });
+  }
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    if (!(await isProcessRunning(processName))) {
+      return { ok: true };
+    }
+
+    await new Promise((resolve) => {
+      setTimeout(resolve, 250);
+    });
+  }
+
+  throw new Error("No se pudo cerrar el proceso del juego.");
 }
 
 export async function collectFiles(rootDir, patterns = []) {

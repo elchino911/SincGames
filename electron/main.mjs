@@ -12,8 +12,9 @@ import { GoogleDriveService } from "./services/google-drive.mjs";
 import { SaveSyncService } from "./services/save-sync.mjs";
 import { StateStore } from "./services/state-store.mjs";
 import { RestoreService } from "./services/restore-service.mjs";
-import { getProcessState, isProcessRunning } from "./services/system.mjs";
+import { getProcessState, isProcessRunning, stopProcess } from "./services/system.mjs";
 import { TorrentService } from "./services/torrent-service.mjs";
+import { AppLogger } from "./services/app-logger.mjs";
 
 const { autoUpdater } = electronUpdater;
 
@@ -104,6 +105,18 @@ let state = {
   discoveryCandidates: [],
   games: [],
   torrentReleaseSources: [],
+  uiPreferences: {
+    topView: "library",
+    libraryTab: "summary",
+    selectedGameId: null,
+    libraryFilter: "",
+    librarySort: "added-desc",
+    discoveryCandidateFilter: "",
+    selectedTorrentSourceUrl: null,
+    selectedTorrentIndex: 0,
+    torrentOutputDir: "",
+    startupDismissed: false
+  },
   manifestInfo: null,
   lastCloudSyncAt: null,
   offlineBackupDir: null,
@@ -111,6 +124,7 @@ let state = {
 };
 
 const stateStore = new StateStore({ app, env });
+const logger = new AppLogger({ app, env });
 const driveService = new GoogleDriveService(env);
 const restoreService = new RestoreService({
   stateStore,
@@ -120,7 +134,8 @@ const restoreService = new RestoreService({
 const syncService = new SaveSyncService({
   env,
   emit: emitToRenderer,
-  onSnapshot: handleSnapshotCaptured
+  onSnapshot: handleSnapshotCaptured,
+  log: logger
 });
 const torrentService = new TorrentService({
   app,
@@ -142,6 +157,7 @@ async function createWindow() {
     height: 980,
     minWidth: 1180,
     minHeight: 760,
+    autoHideMenuBar: true,
     backgroundColor: "#0d141c",
     title: env.APP_NAME,
     webPreferences: {
@@ -151,6 +167,7 @@ async function createWindow() {
       sandbox: false
     }
   });
+  mainWindow.setMenuBarVisibility(false);
 
   const rendererUrl = process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5173";
 
@@ -167,7 +184,16 @@ function emitToRenderer(channel, payload) {
   }
 }
 
+function logInfo(message, meta = null) {
+  void logger.info(message, meta).catch(() => {});
+}
+
+function logWarning(message, meta = null) {
+  void logger.warn(message, meta).catch(() => {});
+}
+
 function emitInfo(message, gameId = null) {
+  logInfo(message, { gameId });
   emitToRenderer("sync:event", {
     type: "info",
     gameId,
@@ -176,6 +202,7 @@ function emitInfo(message, gameId = null) {
 }
 
 function emitWarning(message, gameId = null) {
+  logWarning(message, { gameId });
   emitToRenderer("sync:event", {
     type: "warning",
     gameId,
@@ -224,6 +251,34 @@ function configureAutoUpdater() {
   });
 }
 
+function normalizeUiPreferences(preferences) {
+  const topView = ["library", "discovery", "downloads", "cloud", "activity"].includes(preferences?.topView)
+    ? preferences.topView
+    : "library";
+  const libraryTab = ["summary", "saves", "paths", "manage"].includes(preferences?.libraryTab)
+    ? preferences.libraryTab
+    : "summary";
+  const librarySort = ["added-desc", "play-desc", "alpha-asc"].includes(preferences?.librarySort)
+    ? preferences.librarySort
+    : "added-desc";
+
+  return {
+    topView,
+    libraryTab,
+    selectedGameId: typeof preferences?.selectedGameId === "string" ? preferences.selectedGameId : null,
+    libraryFilter: typeof preferences?.libraryFilter === "string" ? preferences.libraryFilter : "",
+    librarySort,
+    discoveryCandidateFilter:
+      typeof preferences?.discoveryCandidateFilter === "string" ? preferences.discoveryCandidateFilter : "",
+    selectedTorrentSourceUrl: typeof preferences?.selectedTorrentSourceUrl === "string" ? preferences.selectedTorrentSourceUrl : null,
+    selectedTorrentIndex: Number.isInteger(preferences?.selectedTorrentIndex) && preferences.selectedTorrentIndex >= 0
+      ? preferences.selectedTorrentIndex
+      : 0,
+    torrentOutputDir: typeof preferences?.torrentOutputDir === "string" ? preferences.torrentOutputDir : "",
+    startupDismissed: Boolean(preferences?.startupDismissed)
+  };
+}
+
 function getBootstrapPayload(gitReady) {
   return {
     env: {
@@ -252,6 +307,7 @@ function getBootstrapPayload(gitReady) {
     torrentReleaseSources: state.torrentReleaseSources,
     manifestInfo: state.manifestInfo,
     games: state.games,
+    uiPreferences: state.uiPreferences,
     startup: {
       requiresStorageChoice: !driveService.isAuthenticated() && !state.offlineBackupDir
     },
@@ -277,6 +333,9 @@ async function persistLocalState() {
 async function persistState({ syncCloud = false } = {}) {
   await stateStore.save(state);
   syncService.setGames(state.games);
+  if (runtime.monitoringStarted) {
+    await syncService.start({ preservePendingTimers: true });
+  }
 
   if (state.offlineBackupDir) {
     await syncOfflineCatalog();
@@ -411,7 +470,63 @@ async function persistOfflineSnapshot(game, localSnapshot) {
   return metadata;
 }
 
+async function pruneOfflineSnapshots(gameId, keepCount = 3) {
+  const baseDir = await ensureOfflineBackupBase();
+  if (!baseDir) {
+    return { kept: 0, deleted: 0 };
+  }
+
+  const safeKeepCount = Math.max(1, Number(keepCount || 3));
+  const gameDir = path.join(baseDir, "games", gameId);
+  const metadataDir = path.join(gameDir, "metadata");
+  if (!fs.existsSync(metadataDir)) {
+    return { kept: 0, deleted: 0 };
+  }
+
+  const entries = await fs.promises.readdir(metadataDir, { withFileTypes: true });
+  const metadataEntries = [];
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".json")) {
+      continue;
+    }
+
+    try {
+      const fullPath = path.join(metadataDir, entry.name);
+      const metadata = JSON.parse(await fs.promises.readFile(fullPath, "utf8"));
+      metadataEntries.push({ fullPath, metadata });
+    } catch {
+      // Ignora metadata dañada para no cortar la poda.
+    }
+  }
+
+  metadataEntries.sort((left, right) => {
+    const leftTime = new Date(left.metadata?.createdAt || 0).getTime();
+    const rightTime = new Date(right.metadata?.createdAt || 0).getTime();
+    return rightTime - leftTime;
+  });
+
+  const staleEntries = metadataEntries.slice(safeKeepCount);
+  for (const entry of staleEntries) {
+    if (entry.metadata?.archivePath) {
+      await fs.promises.rm(entry.metadata.archivePath, { force: true });
+    }
+    await fs.promises.rm(entry.fullPath, { force: true });
+  }
+
+  return {
+    kept: Math.min(metadataEntries.length, safeKeepCount),
+    deleted: staleEntries.length
+  };
+}
+
 async function handleSnapshotCaptured(game, localSnapshot) {
+  await logger.info("Procesando snapshot capturado.", {
+    gameId: game.id,
+    title: game.title,
+    snapshotId: localSnapshot.id,
+    createdAt: localSnapshot.createdAt
+  });
   state.games = state.games.map((entry) =>
     entry.id === game.id ? { ...entry, latestLocalSave: localSnapshot } : entry
   );
@@ -443,9 +558,23 @@ async function handleSnapshotCaptured(game, localSnapshot) {
     );
 
     emitInfo(`Backup subido a Google Drive para ${game.title}.`, game.id);
+    const pruneResult = await driveService.pruneBackups(game.id, game.maxBackups || 3);
+    if (pruneResult.deleted > 0) {
+      emitInfo(
+        `Se limpiaron ${pruneResult.deleted} backups antiguos de ${game.title}. Conservando ${pruneResult.kept}.`,
+        game.id
+      );
+    }
   } else if (state.offlineBackupDir) {
     await persistOfflineSnapshot(game, localSnapshot);
     emitInfo(`Backup local guardado en ${state.offlineBackupDir} para ${game.title}.`, game.id);
+    const pruneResult = await pruneOfflineSnapshots(game.id, game.maxBackups || 3);
+    if (pruneResult.deleted > 0) {
+      emitInfo(
+        `Se limpiaron ${pruneResult.deleted} backups locales antiguos de ${game.title}. Conservando ${pruneResult.kept}.`,
+        game.id
+      );
+    }
   } else {
     emitWarning(`Se detecto un save nuevo para ${game.title}, pero no hay sesion de Drive ni carpeta local de respaldo.`, game.id);
   }
@@ -460,6 +589,8 @@ function buildGameRecord(payload) {
   return normalizeGameRecord({
     id: payload.id || slugify(payload.title),
     title: payload.title,
+    addedAt: new Date().toISOString(),
+    maxBackups: payload.maxBackups ?? 3,
     savePath: payload.savePath,
     processName: payload.processName,
     executablePath: payload.executablePath || "",
@@ -470,6 +601,7 @@ function buildGameRecord(payload) {
     filePatterns: payload.filePatterns?.length ? payload.filePatterns : ["**/*"],
     launchType,
     launchTarget,
+    bannerPath: payload.bannerPath || "",
     totalPlaySeconds: 0,
     currentlyRunning: false,
     sessionStartedAt: null,
@@ -482,10 +614,13 @@ function buildGameRecord(payload) {
 function normalizeGameRecord(game) {
   return {
     ...game,
+    addedAt: game.addedAt || null,
+    maxBackups: Number.isInteger(game.maxBackups) ? Math.min(20, Math.max(1, game.maxBackups)) : 3,
     executablePath: game.executablePath || "",
     installRoot: game.installRoot || "",
     launchType: game.launchType || (game.executablePath ? "exe" : "exe"),
     launchTarget: game.launchTarget || game.executablePath || "",
+    bannerPath: game.bannerPath || "",
     totalPlaySeconds: Number(game.totalPlaySeconds || 0),
     currentlyRunning: Boolean(game.currentlyRunning),
     sessionStartedAt: game.sessionStartedAt || null,
@@ -508,10 +643,13 @@ function upsertGame(game) {
     state.games[existingIndex] = normalizeGameRecord({
       ...current,
       ...game,
+      maxBackups: current.maxBackups ?? game.maxBackups ?? 3,
       totalPlaySeconds: current.totalPlaySeconds || 0,
       latestLocalSave: current.latestLocalSave || null,
       latestRemoteSave: current.latestRemoteSave || null,
-      lastPlayedAt: current.lastPlayedAt || null
+      lastPlayedAt: current.lastPlayedAt || null,
+      bannerPath: current.bannerPath || game.bannerPath || "",
+      addedAt: current.addedAt || game.addedAt || null
     });
     return state.games[existingIndex];
   }
@@ -529,6 +667,10 @@ async function ensureMonitoringStarted() {
   syncService.setGames(state.games);
   await syncService.start();
   runtime.monitoringStarted = true;
+  await logger.info("Monitoreo automatico iniciado.", {
+    games: state.games.length,
+    logFilePath: logger.logFilePath
+  });
   await emitBootstrap();
 }
 
@@ -631,6 +773,7 @@ async function pollRunningStates() {
         processStartedAt: nextProcessStartedAt,
         trackedUntilAt: null
       };
+      emitInfo(`Juego detectado en ejecucion: ${game.title}.`, game.id);
       changed = true;
     } else if (!running && game.currentlyRunning) {
       const elapsedSeconds = getElapsedSeconds(game.sessionStartedAt, now);
@@ -643,6 +786,8 @@ async function pollRunningStates() {
         processStartedAt: null,
         trackedUntilAt: null
       };
+      emitInfo(`Juego cerrado detectado automaticamente: ${game.title}.`, game.id);
+      syncService.schedulePostExitCapture(game.id);
       changed = true;
       shouldSyncCloud = true;
     } else if (!running && (game.processStartedAt || game.trackedUntilAt)) {
@@ -845,9 +990,29 @@ ipcMain.handle("app:bootstrap", async () => {
   return getBootstrapPayload(await detectGitStatus());
 });
 
+ipcMain.handle("ui:save-preferences", async (_event, payload) => {
+  state.uiPreferences = normalizeUiPreferences({
+    ...state.uiPreferences,
+    ...(payload && typeof payload === "object" ? payload : {})
+  });
+  await stateStore.save(state);
+  return state.uiPreferences;
+});
+
 ipcMain.handle("dialog:pick-directory", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ["openDirectory"]
+  });
+
+  return result.canceled ? null : result.filePaths[0];
+});
+
+ipcMain.handle("dialog:pick-image", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openFile"],
+    filters: [
+      { name: "Imagenes", extensions: ["png", "jpg", "jpeg", "webp", "bmp"] }
+    ]
   });
 
   return result.canceled ? null : result.filePaths[0];
@@ -1082,21 +1247,38 @@ ipcMain.handle("game:update", async (_event, payload) => {
   }
 
   const current = state.games[gameIndex];
-  const updated = normalizeGameRecord({
-    ...current,
-    title: payload.title ?? current.title,
-    savePath: payload.savePath ?? current.savePath,
+    const updated = normalizeGameRecord({
+      ...current,
+      title: payload.title ?? current.title,
+      maxBackups: payload.maxBackups ?? current.maxBackups,
+      savePath: payload.savePath ?? current.savePath,
     processName: payload.processName ?? current.processName,
     executablePath: payload.executablePath ?? current.executablePath,
     installRoot: payload.installRoot ?? current.installRoot,
     filePatterns: payload.filePatterns?.length ? payload.filePatterns : current.filePatterns,
     launchType: payload.launchType ?? current.launchType,
-    launchTarget: payload.launchTarget ?? current.launchTarget
+    launchTarget: payload.launchTarget ?? current.launchTarget,
+    bannerPath: payload.bannerPath ?? current.bannerPath
   });
 
   state.games[gameIndex] = updated;
   await persistState({ syncCloud: true });
   return updated;
+});
+
+ipcMain.handle("game:get-icon", async (_event, gameId) => {
+  const game = state.games.find((item) => item.id === gameId);
+  if (!game) {
+    throw new Error("Juego no encontrado.");
+  }
+
+  const iconPath = game.executablePath || (game.launchType === "exe" ? game.launchTarget || "" : "");
+  if (!iconPath || !fs.existsSync(iconPath)) {
+    return null;
+  }
+
+  const icon = await app.getFileIcon(iconPath, { size: "normal" });
+  return icon.isEmpty() ? null : icon.toDataURL();
 });
 
 ipcMain.handle("game:restore-latest", async (_event, gameId) => {
@@ -1145,6 +1327,22 @@ ipcMain.handle("game:launch", async (_event, gameId) => {
   setTimeout(() => {
     void pollRunningStates();
   }, 4000);
+
+  return { ok: true };
+});
+
+ipcMain.handle("game:close", async (_event, gameId) => {
+  const game = state.games.find((item) => item.id === gameId);
+  if (!game) {
+    throw new Error("Juego no encontrado.");
+  }
+
+  await stopProcess(game.processName);
+  emitInfo(`Juego cerrado: ${game.title}.`, game.id);
+  syncService.schedulePostExitCapture(game.id);
+  setTimeout(() => {
+    void pollRunningStates();
+  }, 1000);
 
   return { ok: true };
 });
@@ -1212,11 +1410,17 @@ function slugify(value) {
 
 app.whenReady()
   .then(async () => {
+    await logger.info("Inicializando aplicacion.", {
+      packaged: app.isPackaged,
+      userData: app.getPath("userData"),
+      logFilePath: logger.logFilePath
+    });
     const loadedState = await stateStore.load();
     state = {
       ...loadedState,
       games: Array.isArray(loadedState.games) ? loadedState.games.map(normalizeGameRecord) : [],
-      torrentReleaseSources: Array.isArray(loadedState.torrentReleaseSources) ? loadedState.torrentReleaseSources : []
+      torrentReleaseSources: Array.isArray(loadedState.torrentReleaseSources) ? loadedState.torrentReleaseSources : [],
+      uiPreferences: normalizeUiPreferences(loadedState.uiPreferences)
     };
 
     if (loadedState.googleTokens) {

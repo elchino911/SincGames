@@ -7,7 +7,8 @@ declare global {
       saveUiPreferences: (payload: Partial<UiPreferences>) => Promise<UiPreferences>;
       openExternalUrl: (url: string) => Promise<{ ok: boolean }>;
       listTorrentDownloads: () => Promise<TorrentDownloadRecord[]>;
-      fetchTorrentRelease: (url: string) => Promise<TorrentReleaseSourceRecord>;
+      fetchTorrentRelease: (payload: TorrentReleaseSourceInput) => Promise<TorrentReleaseSourceRecord>;
+      updateTorrentReleaseSourcePassword: (payload: TorrentReleaseSourcePasswordPayload) => Promise<TorrentReleaseSourceRecord[]>;
       removeTorrentReleaseSource: (sourceUrl: string) => Promise<TorrentReleaseSourceRecord[]>;
       startTorrentDownload: (payload: TorrentDownloadPayload) => Promise<TorrentDownloadRecord>;
       pauseTorrentDownload: (downloadId: string) => Promise<TorrentDownloadRecord>;
@@ -185,7 +186,11 @@ export interface UiPreferences {
   discoveryCandidateFilter: string;
   selectedTorrentSourceUrl: string | null;
   selectedTorrentIndex: number;
-  torrentOutputDir: string;
+  torrentDefaultOutputDir: string;
+  torrentDownloadOverrideDir: string;
+  torrentExtractArchives: boolean;
+  torrentDeleteArchivesAfterExtract: boolean;
+  torrentAutoRefreshMinutes: number;
   startupDismissed: boolean;
 }
 
@@ -219,6 +224,10 @@ export interface TorrentDownloadPayload {
   fileSizeLabel?: string | null;
   uploadDate?: string | null;
   outputDir?: string;
+  defaultOutputDir?: string;
+  extractRarOnComplete?: boolean;
+  deleteArchivesAfterExtract?: boolean;
+  extractionPassword?: string | null;
 }
 
 export interface TorrentDownloadRecord {
@@ -228,13 +237,20 @@ export interface TorrentDownloadRecord {
   fileSizeLabel: string | null;
   uploadDate: string | null;
   outputDir: string;
-  status: "starting" | "downloading" | "paused" | "completed" | "canceled" | "error";
+  contentRoot?: string;
+  status: "starting" | "downloading" | "paused" | "finalizing" | "extracting" | "completed" | "canceled" | "error";
   progress: number;
   downloadedBytes: number;
   totalBytes: number;
   downloadSpeed: number;
   numPeers: number;
   infoHash: string | null;
+  extractRarOnComplete: boolean;
+  deleteArchivesAfterExtract: boolean;
+  hasExtractionPassword: boolean;
+  extractorName: string | null;
+  extractedArchiveCount: number;
+  postProcessMessage: string | null;
   errorMessage: string | null;
   warningMessage: string | null;
   createdAt: string;
@@ -256,7 +272,18 @@ export interface TorrentReleasePayload {
 export interface TorrentReleaseSourceRecord {
   sourceUrl: string;
   fetchedAt: string;
+  extractionPassword?: string | null;
   release: TorrentReleasePayload;
+}
+
+export interface TorrentReleaseSourceInput {
+  url: string;
+  extractionPassword?: string | null;
+}
+
+export interface TorrentReleaseSourcePasswordPayload {
+  sourceUrl: string;
+  extractionPassword?: string | null;
 }
 
 export {};

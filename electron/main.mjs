@@ -15,6 +15,7 @@ import { RestoreService } from "./services/restore-service.mjs";
 import { getProcessState, isProcessRunning, stopProcess } from "./services/system.mjs";
 import { TorrentService } from "./services/torrent-service.mjs";
 import { AppLogger } from "./services/app-logger.mjs";
+import { ArchiveExtractor } from "./services/archive-extractor.mjs";
 
 const { autoUpdater } = electronUpdater;
 
@@ -114,7 +115,11 @@ let state = {
     discoveryCandidateFilter: "",
     selectedTorrentSourceUrl: null,
     selectedTorrentIndex: 0,
-    torrentOutputDir: "",
+    torrentDefaultOutputDir: "",
+    torrentDownloadOverrideDir: "",
+    torrentExtractArchives: true,
+    torrentDeleteArchivesAfterExtract: false,
+    torrentAutoRefreshMinutes: 5,
     startupDismissed: false
   },
   manifestInfo: null,
@@ -125,6 +130,7 @@ let state = {
 
 const stateStore = new StateStore({ app, env });
 const logger = new AppLogger({ app, env });
+const archiveExtractor = new ArchiveExtractor();
 const driveService = new GoogleDriveService(env);
 const restoreService = new RestoreService({
   stateStore,
@@ -137,13 +143,7 @@ const syncService = new SaveSyncService({
   onSnapshot: handleSnapshotCaptured,
   log: logger
 });
-const torrentService = new TorrentService({
-  app,
-  env,
-  emit: (downloads) => {
-    emitToRenderer("torrent:updated", downloads);
-  }
-});
+const autoImportedTorrentIds = new Set();
 
 driveService.setTokenPersistence(async (tokens) => {
   state.googleTokens = tokens;
@@ -262,6 +262,9 @@ function normalizeUiPreferences(preferences) {
     ? preferences.librarySort
     : "added-desc";
 
+  const legacyTorrentOutputDir =
+    typeof preferences?.torrentOutputDir === "string" ? preferences.torrentOutputDir : "";
+
   return {
     topView,
     libraryTab,
@@ -274,7 +277,22 @@ function normalizeUiPreferences(preferences) {
     selectedTorrentIndex: Number.isInteger(preferences?.selectedTorrentIndex) && preferences.selectedTorrentIndex >= 0
       ? preferences.selectedTorrentIndex
       : 0,
-    torrentOutputDir: typeof preferences?.torrentOutputDir === "string" ? preferences.torrentOutputDir : "",
+    torrentDefaultOutputDir:
+      typeof preferences?.torrentDefaultOutputDir === "string"
+        ? preferences.torrentDefaultOutputDir
+        : legacyTorrentOutputDir,
+    torrentDownloadOverrideDir:
+      typeof preferences?.torrentDownloadOverrideDir === "string" ? preferences.torrentDownloadOverrideDir : "",
+    torrentExtractArchives:
+      typeof preferences?.torrentExtractArchives === "boolean" ? preferences.torrentExtractArchives : true,
+    torrentDeleteArchivesAfterExtract:
+      typeof preferences?.torrentDeleteArchivesAfterExtract === "boolean"
+        ? preferences.torrentDeleteArchivesAfterExtract
+        : false,
+    torrentAutoRefreshMinutes:
+      Number.isFinite(Number(preferences?.torrentAutoRefreshMinutes))
+        ? Math.min(60, Math.max(1, Math.round(Number(preferences.torrentAutoRefreshMinutes))))
+        : 5,
     startupDismissed: Boolean(preferences?.startupDismissed)
   };
 }
@@ -659,6 +677,129 @@ function upsertGame(game) {
   return normalized;
 }
 
+const ignoredAutoImportExeNames = new Set([
+  "unins000.exe",
+  "uninstall.exe",
+  "setup.exe",
+  "launcher.exe",
+  "crashreporter.exe"
+]);
+
+async function findPrimaryExecutable(rootDir) {
+  if (!rootDir || !fs.existsSync(rootDir)) {
+    return null;
+  }
+
+  const stack = [{ directoryPath: rootDir, depth: 0 }];
+  const maxDepth = 5;
+  let fallback = null;
+
+  while (stack.length) {
+    const current = stack.shift();
+    if (!current) {
+      continue;
+    }
+
+    let entries = [];
+    try {
+      entries = await fs.promises.readdir(current.directoryPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(current.directoryPath, entry.name);
+      if (entry.isDirectory()) {
+        if (current.depth < maxDepth) {
+          stack.push({ directoryPath: fullPath, depth: current.depth + 1 });
+        }
+        continue;
+      }
+
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".exe")) {
+        continue;
+      }
+
+      const lowerName = entry.name.toLowerCase();
+      if (ignoredAutoImportExeNames.has(lowerName)) {
+        continue;
+      }
+
+      const score = current.depth === 0 ? 100 : Math.max(0, 50 - current.depth * 10);
+      if (!fallback || score > fallback.score) {
+        fallback = { path: fullPath, score };
+      }
+    }
+  }
+
+  return fallback?.path || null;
+}
+
+function buildDefaultSavePathFromProcess(processName) {
+  const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || process.cwd(), "AppData", "Local");
+  const stem = path.basename(processName || "", path.extname(processName || ""));
+  if (!stem) {
+    return "";
+  }
+
+  return path.join(localAppData, stem, "Saved", "SaveGames");
+}
+
+async function autoAddCompletedTorrentToLibrary(download) {
+  if (!download || download.status !== "completed") {
+    return;
+  }
+
+  const importKey = download.infoHash || download.id;
+  if (autoImportedTorrentIds.has(importKey)) {
+    return;
+  }
+
+  autoImportedTorrentIds.add(importKey);
+
+  try {
+    const installRoot = download.contentRoot || download.outputDir;
+    const executablePath = await findPrimaryExecutable(installRoot);
+    if (!executablePath) {
+      emitWarning(
+        `La descarga ${download.title} termino pero no se encontro un .exe para agregarla automaticamente a biblioteca.`
+      );
+      return;
+    }
+
+    const processName = path.basename(executablePath);
+    const game = buildGameRecord({
+      id: slugify(download.title),
+      title: download.title,
+      processName,
+      executablePath,
+      installRoot,
+      savePath: buildDefaultSavePathFromProcess(processName),
+      detectionSource: "manual",
+      launchType: "exe",
+      launchTarget: executablePath
+    });
+
+    upsertGame(game);
+    await persistState({ syncCloud: driveService.isAuthenticated() });
+    emitInfo(`Juego agregado automaticamente a biblioteca: ${download.title}.`, game.id);
+  } catch (error) {
+    emitWarning(
+      `No se pudo agregar automaticamente ${download.title} a la biblioteca: ${error instanceof Error ? error.message : String(error)}.`
+    );
+  }
+}
+
+const torrentService = new TorrentService({
+  app,
+  env,
+  archiveExtractor,
+  emit: (downloads) => {
+    emitToRenderer("torrent:updated", downloads);
+  },
+  onCompleted: (download) => autoAddCompletedTorrentToLibrary(download)
+});
+
 async function ensureMonitoringStarted() {
   if (runtime.monitoringStarted) {
     return;
@@ -949,7 +1090,21 @@ function normalizeTorrentReleasePayload(payload) {
   };
 }
 
-async function fetchTorrentRelease(url) {
+function normalizeTorrentReleaseSourceRecord(source) {
+  return {
+    sourceUrl: source.sourceUrl,
+    fetchedAt: source.fetchedAt,
+    extractionPassword: typeof source.extractionPassword === "string" ? source.extractionPassword : "",
+    release: source.release
+  };
+}
+
+async function fetchTorrentRelease(input) {
+  const url = typeof input === "string" ? input : input?.url;
+  const extractionPassword =
+    input && typeof input === "object" && typeof input.extractionPassword === "string"
+      ? input.extractionPassword.trim()
+      : "";
   let parsedUrl;
   try {
     parsedUrl = new URL(url);
@@ -972,9 +1127,9 @@ async function fetchTorrentRelease(url) {
   }
 
   const raw = await response.text();
-  let payload;
+  let releasePayload;
   try {
-    payload = JSON.parse(raw);
+    releasePayload = JSON.parse(raw);
   } catch {
     throw new Error("La pagina no devolvio un JSON valido.");
   }
@@ -982,7 +1137,8 @@ async function fetchTorrentRelease(url) {
   return {
     sourceUrl: parsedUrl.toString(),
     fetchedAt: new Date().toISOString(),
-    release: normalizeTorrentReleasePayload(payload)
+    extractionPassword,
+    release: normalizeTorrentReleasePayload(releasePayload)
   };
 }
 
@@ -1034,11 +1190,30 @@ ipcMain.handle("torrent:list", async () => {
 ipcMain.handle("torrent:fetch-release", async (_event, url) => {
   const source = await fetchTorrentRelease(url);
   state.torrentReleaseSources = [
-    source,
-    ...state.torrentReleaseSources.filter((entry) => entry?.sourceUrl !== source.sourceUrl)
+    normalizeTorrentReleaseSourceRecord(source),
+    ...state.torrentReleaseSources
+      .filter((entry) => entry?.sourceUrl !== source.sourceUrl)
+      .map((entry) => normalizeTorrentReleaseSourceRecord(entry))
   ];
   await persistLocalState();
   return source;
+});
+
+ipcMain.handle("torrent:update-source-password", async (_event, payload) => {
+  const sourceUrl = typeof payload?.sourceUrl === "string" ? payload.sourceUrl : "";
+  const extractionPassword = typeof payload?.extractionPassword === "string" ? payload.extractionPassword.trim() : "";
+
+  state.torrentReleaseSources = state.torrentReleaseSources.map((entry) =>
+    entry?.sourceUrl === sourceUrl
+      ? normalizeTorrentReleaseSourceRecord({
+          ...entry,
+          extractionPassword
+        })
+      : normalizeTorrentReleaseSourceRecord(entry)
+  );
+
+  await persistLocalState();
+  return state.torrentReleaseSources;
 });
 
 ipcMain.handle("torrent:remove-source", async (_event, sourceUrl) => {

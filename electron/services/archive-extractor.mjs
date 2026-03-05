@@ -203,6 +203,29 @@ async function getDirectoryShape(directoryPath) {
   return { directories, files };
 }
 
+async function flattenChildIntoParent(sourceDir, targetDir) {
+  const sourceBaseName = path.basename(sourceDir);
+  const entries = await fs.promises.readdir(sourceDir, { withFileTypes: true });
+
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceDir, entry.name);
+
+    // Special case:
+    // <target>/<A>/<A>/... should be flattened directly into <target>/...
+    if (
+      entry.isDirectory() &&
+      normalizeFolderToken(entry.name) === normalizeFolderToken(sourceBaseName)
+    ) {
+      await flattenChildIntoParent(sourcePath, targetDir);
+      await fs.promises.rm(sourcePath, { recursive: true, force: true });
+      continue;
+    }
+
+    const targetPath = path.join(targetDir, entry.name);
+    await moveEntryReplace(sourcePath, targetPath);
+  }
+}
+
 export class ArchiveExtractor {
   constructor() {
     this.cachedTool = undefined;
@@ -447,7 +470,7 @@ export class ArchiveExtractor {
         break;
       }
 
-      await mergeDirectoryContents(childDirPath, currentRoot);
+      await flattenChildIntoParent(childDirPath, currentRoot);
       await fs.promises.rm(childDirPath, { recursive: true, force: true });
       iterations += 1;
     }

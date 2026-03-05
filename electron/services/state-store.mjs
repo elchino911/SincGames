@@ -15,7 +15,10 @@ const defaultState = {
     discoveryCandidateFilter: "",
     selectedTorrentSourceUrl: null,
     selectedTorrentIndex: 0,
-    torrentOutputDir: "",
+    torrentDefaultOutputDir: "",
+    torrentDownloadOverrideDir: "",
+    torrentExtractArchives: true,
+    torrentDeleteArchivesAfterExtract: false,
     startupDismissed: false
   },
   manifestInfo: null,

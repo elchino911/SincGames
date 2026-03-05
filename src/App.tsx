@@ -1141,13 +1141,13 @@ function App() {
     }
   };
 
-  const refreshTorrentSource = async (sourceUrl: string) => {
+  const refreshTorrentSource = async (sourceRecord: TorrentReleaseSourceRecord) => {
     if (!bridge) return;
-    setBusyAction(`torrent:refresh:${sourceUrl}`);
+    setBusyAction(`torrent:refresh:${sourceRecord.sourceUrl}`);
     try {
       const source = await bridge.fetchTorrentRelease({
-        url: sourceUrl,
-        extractionPassword: source.extractionPassword || undefined
+        url: sourceRecord.sourceUrl,
+        extractionPassword: sourceRecord.extractionPassword || undefined
       });
       upsertTorrentSource(source);
       setTorrentNotice(`Fuente actualizada: ${source.release.name}.`);
@@ -1856,7 +1856,7 @@ function App() {
                       <button
                         className="mini-button"
                         type="button"
-                        onClick={() => void refreshTorrentSource(source.sourceUrl)}
+                        onClick={() => void refreshTorrentSource(source)}
                         disabled={busyAction === `torrent:refresh:${source.sourceUrl}`}
                       >
                         Recargar

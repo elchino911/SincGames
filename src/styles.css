@@ -306,6 +306,7 @@ textarea:focus {
   background: rgba(132, 201, 79, 0.12);
   border: 1px solid rgba(132, 201, 79, 0.26);
   color: #bfe7a1;
+  overflow-wrap: anywhere;
 }
 
 .steam-shell {
@@ -653,6 +654,10 @@ textarea:focus {
   min-width: 0;
 }
 
+.steam-rail.is-downloads {
+  padding-top: 6.15rem;
+}
+
 .game-hero {
   position: relative;
   min-height: 258px;
@@ -924,12 +929,19 @@ textarea:focus {
   gap: 0.8rem;
 }
 
+.steam-saves-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.72rem;
+  align-items: stretch;
+  grid-auto-rows: 1fr;
+}
+
 .discovery-layout {
   grid-template-columns: 0.9fr 1.1fr 0.95fr;
 }
 
 .torrent-layout {
-  grid-template-columns: minmax(320px, 0.95fr) minmax(320px, 1fr) minmax(320px, 0.9fr);
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1fr) minmax(0, 0.9fr);
   align-items: start;
 }
 
@@ -940,6 +952,7 @@ textarea:focus {
     linear-gradient(180deg, rgba(34, 45, 58, 0.94), rgba(26, 34, 44, 0.98));
   border: 1px solid rgba(255, 255, 255, 0.05);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02), 0 6px 14px rgba(0, 0, 0, 0.12);
+  min-width: 0;
 }
 
 .steam-card h4 {
@@ -1079,6 +1092,7 @@ textarea:focus {
 .steam-form label {
   display: grid;
   gap: 0.35rem;
+  min-width: 0;
 }
 
 .steam-form label span {
@@ -1087,16 +1101,16 @@ textarea:focus {
 }
 
 .save-retention-row {
-  margin-top: 1rem;
+  margin-top: 0.7rem;
   display: grid;
-  grid-template-columns: minmax(0, 220px) auto;
-  gap: 0.8rem;
+  grid-template-columns: minmax(0, 180px) auto;
+  gap: 0.65rem;
   align-items: end;
 }
 
 .save-retention-field {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.28rem;
 }
 
 .save-retention-field span {
@@ -1105,6 +1119,52 @@ textarea:focus {
 }
 
 .save-retention-field input {
+  width: 100%;
+}
+
+.save-retention-note {
+  margin: 0.45rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  color: rgba(199, 213, 224, 0.62);
+}
+
+.save-actions-inline-row {
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+}
+
+.steam-save-card {
+  padding: 0.72rem;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.steam-save-card h4,
+.steam-save-actions-card h4 {
+  margin-bottom: 0.48rem;
+}
+
+.steam-saves-grid .steam-stat-list {
+  gap: 0.46rem;
+  flex: 1 1 auto;
+}
+
+.steam-saves-grid .steam-stat-list div {
+  padding: 0.26rem 0.48rem;
+}
+
+.steam-save-actions-card {
+  justify-content: space-between;
+}
+
+.steam-save-actions-card .steam-actions-row {
+  grid-template-columns: 1fr;
+  gap: 0.6rem;
+}
+
+.steam-save-actions-card .secondary-button {
   width: 100%;
 }
 
@@ -1123,6 +1183,45 @@ textarea:focus {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 0.5rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.field-with-action > * {
+  min-width: 0;
+}
+
+.field-action-group {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.torrent-preferences-grid {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.torrent-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 0.8rem;
+  background: rgba(8, 14, 20, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.045);
+}
+
+.torrent-checkbox input {
+  margin: 0;
+  accent-color: #66c0f4;
+}
+
+.torrent-checkbox span {
+  color: #dce8ef;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
 }
 
 .torrent-choice-list,
@@ -1150,6 +1249,7 @@ textarea:focus {
 .torrent-options-panel,
 .torrent-progress-panel {
   min-height: 0;
+  min-width: 0;
 }
 
 .torrent-progress-panel {
@@ -1159,7 +1259,8 @@ textarea:focus {
 
 .torrent-progress-panel .steam-feed {
   max-height: 760px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   padding-right: 0.2rem;
 }
 
@@ -1169,6 +1270,7 @@ textarea:focus {
   padding: 0.85rem;
   border: 1px solid rgba(255, 255, 255, 0.05);
   background: rgba(8, 14, 20, 0.22);
+  min-width: 0;
 }
 
 .torrent-source-row.active {
@@ -1204,21 +1306,71 @@ textarea:focus {
   flex-wrap: wrap;
 }
 
+.torrent-source-password {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+  min-width: 0;
+}
+
+.torrent-source-password input {
+  min-width: 0;
+}
+
+.torrent-sources-panel .mini-button,
+.field-action-group .mini-button,
+.torrent-source-password .mini-button {
+  white-space: nowrap;
+}
+
 .torrent-choice {
   width: 100%;
   display: grid;
-  gap: 0.2rem;
-  padding: 0.9rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  padding: 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 4px;
   background: rgba(8, 14, 20, 0.26);
-  text-align: left;
   color: #dce8ef;
+  align-items: start;
+  min-width: 0;
 }
 
 .torrent-choice.active {
   border-color: rgba(102, 192, 244, 0.35);
   background: linear-gradient(180deg, rgba(102, 192, 244, 0.16), rgba(8, 14, 20, 0.3));
+}
+
+.torrent-choice-main {
+  width: 100%;
+  display: grid;
+  gap: 0.2rem;
+  border: none;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  color: inherit;
+  min-width: 0;
+}
+
+.torrent-choice-download {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(102, 192, 244, 0.24);
+  border-radius: 4px;
+  padding: 0;
+  background: linear-gradient(180deg, #2e75b7, #1f5788);
+  color: #dff4ff;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.torrent-choice-download:disabled {
+  opacity: 0.45;
 }
 
 .torrent-choice strong,
@@ -1240,6 +1392,10 @@ textarea:focus {
   gap: 1rem;
 }
 
+.torrent-entry-head > div {
+  min-width: 0;
+}
+
 .torrent-status-pill {
   padding: 0.35rem 0.6rem;
   border-radius: 999px;
@@ -1252,6 +1408,12 @@ textarea:focus {
 .torrent-status-pill.is-downloading {
   background: rgba(102, 192, 244, 0.16);
   color: #cfefff;
+}
+
+.torrent-status-pill.is-finalizing,
+.torrent-status-pill.is-extracting {
+  background: rgba(132, 201, 79, 0.14);
+  color: #d6f4c0;
 }
 
 .torrent-status-pill.is-paused {
@@ -1283,6 +1445,7 @@ textarea:focus {
 
 .torrent-download-card {
   gap: 0.75rem;
+  min-width: 0;
 }
 
 .torrent-progress-bar {
@@ -1311,6 +1474,8 @@ textarea:focus {
 .torrent-progress-summary strong,
 .torrent-inline-note strong {
   color: #eef7fb;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .torrent-progress-summary span,
@@ -1325,6 +1490,7 @@ textarea:focus {
   padding: 0.65rem 0.8rem;
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.03);
+  align-items: flex-start;
 }
 
 .torrent-inline-note strong {
@@ -1333,7 +1499,26 @@ textarea:focus {
 }
 
 .torrent-meta-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.torrent-meta-grid > div {
+  min-width: 0;
+}
+
+.torrent-meta-grid strong,
+.torrent-meta-grid span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.torrent-download-card .steam-actions-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.torrent-download-card .steam-actions-row .mini-button {
+  width: 100%;
+  min-width: 0;
 }
 
 .tone-info {
@@ -1375,6 +1560,10 @@ textarea:focus {
   .torrent-progress-panel {
     position: static;
   }
+
+  .steam-saves-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1280px) {
@@ -1382,6 +1571,10 @@ textarea:focus {
   .steam-action-bar,
   .steam-content-grid,
   .steam-feature-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .steam-saves-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1465,6 +1658,7 @@ textarea:focus {
 
   .steam-rail {
     grid-template-columns: 1fr;
+    padding-top: 0;
   }
 }
 

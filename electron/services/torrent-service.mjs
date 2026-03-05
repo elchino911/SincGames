@@ -68,7 +68,6 @@ export class TorrentService {
     if (defaultOutputDir) {
       return path.resolve(
         defaultOutputDir,
-        sanitizePathSegment(sourceName, "release"),
         sanitizePathSegment(title, "download")
       );
     }

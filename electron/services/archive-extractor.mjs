@@ -111,6 +111,26 @@ async function getDirectorySize(directoryPath) {
 }
 
 async function moveEntryReplace(sourcePath, targetPath) {
+  const resolvedSource = path.resolve(sourcePath);
+  const resolvedTarget = path.resolve(targetPath);
+  const sourceLower = resolvedSource.toLowerCase();
+  const targetLower = resolvedTarget.toLowerCase();
+
+  if (sourceLower === targetLower) {
+    return;
+  }
+
+  // If source is nested inside target, removing target first would delete source.
+  // Merge nested contents into target and remove only the nested source folder.
+  if (sourceLower.startsWith(`${targetLower}${path.sep.toLowerCase()}`)) {
+    const sourceStats = await fs.promises.stat(sourcePath);
+    if (sourceStats.isDirectory()) {
+      await mergeDirectoryContents(sourcePath, targetPath);
+      await fs.promises.rm(sourcePath, { recursive: true, force: true });
+      return;
+    }
+  }
+
   await fs.promises.rm(targetPath, { recursive: true, force: true });
 
   try {

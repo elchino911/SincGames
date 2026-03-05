@@ -1260,6 +1260,7 @@ function App() {
     try {
       const download = await bridge.startTorrentDownload(payload);
       setTorrentNotice(`Descarga iniciada en ${download.outputDir}.`);
+      setTorrentDownloadOverrideDir("");
       setTopView("downloads");
     } catch (error) {
       setTorrentNotice(null);

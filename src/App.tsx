@@ -344,6 +344,7 @@ function App() {
   const [librarySort, setLibrarySort] = useState<LibrarySort>("added-desc");
   const [librarySortMenuOpen, setLibrarySortMenuOpen] = useState(false);
   const [discoveryCandidateFilter, setDiscoveryCandidateFilter] = useState("");
+  const [torrentSourceFilter, setTorrentSourceFilter] = useState("");
   const [saveRetentionInput, setSaveRetentionInput] = useState("3");
   const [newRoot, setNewRoot] = useState("");
   const [manualForm, setManualForm] = useState<GameFormState>(emptyForm);
@@ -450,6 +451,7 @@ function App() {
         libraryFilter,
         librarySort,
         discoveryCandidateFilter,
+        torrentSourceFilter,
         selectedTorrentSourceUrl,
         selectedTorrentIndex,
         torrentDefaultOutputDir,
@@ -475,6 +477,7 @@ function App() {
     libraryFilter,
     librarySort,
     discoveryCandidateFilter,
+    torrentSourceFilter,
     selectedTorrentSourceUrl,
     selectedTorrentIndex,
     torrentDefaultOutputDir,
@@ -500,6 +503,7 @@ function App() {
     setLibraryFilter(preferences.libraryFilter || "");
     setLibrarySort(preferences.librarySort || "added-desc");
     setDiscoveryCandidateFilter(preferences.discoveryCandidateFilter || "");
+    setTorrentSourceFilter(preferences.torrentSourceFilter || "");
     setSelectedTorrentSourceUrl(preferences.selectedTorrentSourceUrl || null);
     setSelectedTorrentIndex(Number.isInteger(preferences.selectedTorrentIndex) ? preferences.selectedTorrentIndex : 0);
     setTorrentDefaultOutputDir(preferences.torrentDefaultOutputDir || "");
@@ -668,6 +672,20 @@ function App() {
     );
   }, [discoveryCandidateFilter, discoveryCandidates]);
 
+  const filteredTorrentSources = useMemo(() => {
+    const needle = torrentSourceFilter.trim().toLowerCase();
+    if (!needle) {
+      return torrentSources;
+    }
+
+    return torrentSources.filter((source) =>
+      [source.release.name, source.sourceUrl, source.extractionPassword || ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle)
+    );
+  }, [torrentSourceFilter, torrentSources]);
+
   const selectedActivity = useMemo(
     () => activity.filter((item) => !selectedGame || item.gameId === selectedGame.id),
     [activity, selectedGame]
@@ -693,6 +711,15 @@ function App() {
   const showStartupOverlay = Boolean(
     bootstrap?.startup.requiresStorageChoice && !startupDismissed
   );
+  const isDiscoveryScanning = Boolean(discoveryStatus?.running || bootstrap?.runtime.discoveryRunning);
+  const discoveryStatusSummary = discoveryStatus
+    ? `${discoveryStatus.phase} - ${discoveryStatus.rootIndex}/${discoveryStatus.rootCount} roots - ${discoveryStatus.processedExecutables} ejecutables`
+    : null;
+  const discoveryLiveLine =
+    discoveryStatus?.currentPath ||
+    discoveryStatus?.scanRoot ||
+    discoveryStatus?.message ||
+    "Preparando roots para el escaneo...";
   const selectedGameBannerUrl = toFileUrl(selectedGame?.bannerPath);
   const selectedLibrarySortLabel = librarySortOptions.find((option) => option.id === librarySort)?.label || "Ordenar";
   const selectedGameBackupSizeBytes =
@@ -1530,8 +1557,8 @@ function App() {
               <span className="section-kicker">Descubrimiento</span>
               <h2>Escaneo de roots y alta manual</h2>
             </div>
-            <button className="secondary-button" onClick={scanForGames} disabled={busyAction === "scan" || bootstrap?.runtime.discoveryRunning}>
-              {bootstrap?.runtime.discoveryRunning ? "Escaneando..." : "Escanear roots"}
+            <button className="secondary-button" onClick={scanForGames} disabled={busyAction === "scan" || isDiscoveryScanning}>
+              {isDiscoveryScanning ? "Escaneando..." : "Escanear roots"}
             </button>
           </section>
 
@@ -1561,9 +1588,9 @@ function App() {
 
             <article className="steam-card">
               <h4>Candidatos</h4>
-              {discoveryStatus ? (
+              {discoveryStatusSummary ? (
                 <p className="muted-copy">
-                  {discoveryStatus.phase} - {discoveryStatus.rootIndex}/{discoveryStatus.rootCount} roots - {discoveryStatus.processedExecutables} ejecutables
+                  {discoveryStatusSummary}
                 </p>
               ) : null}
               <div className="discovery-candidates-toolbar">
@@ -1838,8 +1865,16 @@ function App() {
                 </div>
                 {torrentNotice ? <p className="success-copy">{torrentNotice}</p> : null}
               </div>
+              <div className="discovery-candidates-toolbar">
+                <input
+                  className="discovery-candidates-search"
+                  placeholder="Buscar fuente o URL"
+                  value={torrentSourceFilter}
+                  onChange={(event) => setTorrentSourceFilter(event.target.value)}
+                />
+              </div>
               <div className="torrent-source-list">
-                {torrentSources.map((source) => (
+                {filteredTorrentSources.map((source) => (
                   <article
                     key={source.sourceUrl}
                     className={`torrent-source-row ${selectedTorrentSource?.sourceUrl === source.sourceUrl ? "active" : ""}`}
@@ -1890,6 +1925,9 @@ function App() {
                   </article>
                 ))}
                 {!torrentSources.length ? <p className="muted-copy">Todavia no agregas URLs de release.</p> : null}
+                {torrentSources.length && !filteredTorrentSources.length ? (
+                  <p className="muted-copy">No hay fuentes que coincidan con la busqueda.</p>
+                ) : null}
               </div>
             </article>
 
@@ -2310,6 +2348,23 @@ function App() {
             <div className="startup-hints">
               <span>Google: restaura catalogo y backups remotos.</span>
               <span>Fallback local: guarda ZIPs y catalogo en la carpeta elegida.</span>
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {isDiscoveryScanning ? (
+        <section className="scan-progress-overlay" aria-live="polite" aria-busy="true">
+          <article className="scan-progress-card">
+            <div className="scan-progress-spinner" aria-hidden="true" />
+            <div className="scan-progress-copy">
+              <span className="section-kicker">Escaneo en curso</span>
+              <h3>Buscando ejecutables validos en tus roots</h3>
+              <p className="muted-copy">{discoveryStatusSummary || "Preparando escaneo..."}</p>
+              <div className="scan-progress-line" title={discoveryLiveLine}>
+                <strong>Directorio actual</strong>
+                <span>{discoveryLiveLine}</span>
+              </div>
             </div>
           </article>
         </section>

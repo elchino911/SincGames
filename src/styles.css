@@ -110,6 +110,82 @@ textarea:focus {
   backdrop-filter: blur(10px);
 }
 
+.scan-progress-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(3, 8, 12, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.scan-progress-card {
+  width: min(620px, 100%);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1rem;
+  align-items: center;
+  padding: 1.2rem 1.25rem;
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(24, 35, 48, 0.98), rgba(16, 24, 33, 0.98));
+  border: 1px solid rgba(102, 192, 244, 0.22);
+  box-shadow: 0 26px 80px rgba(0, 0, 0, 0.45);
+}
+
+.scan-progress-copy {
+  min-width: 0;
+}
+
+.scan-progress-copy h3 {
+  margin: 0.2rem 0 0.45rem;
+  font-family: "Rajdhani", sans-serif;
+  font-size: 1.45rem;
+  letter-spacing: 0.03em;
+  color: #eef7fb;
+}
+
+.scan-progress-spinner {
+  width: 44px;
+  height: 44px;
+  border: 4px solid rgba(102, 192, 244, 0.18);
+  border-top-color: #66c0f4;
+  border-radius: 999px;
+  animation: scan-spin 0.9s linear infinite;
+}
+
+.scan-progress-line {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+  padding: 0.78rem 0.9rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.scan-progress-line strong {
+  color: #cfefff;
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scan-progress-line span {
+  color: rgba(220, 232, 239, 0.86);
+  font-family: "Consolas", "SFMono-Regular", "Courier New", monospace;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@keyframes scan-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .help-modal {
   width: min(1120px, 100%);
   max-height: min(90vh, 920px);
@@ -1239,7 +1315,7 @@ textarea:focus {
 .torrent-source-list {
   display: grid;
   gap: 0.75rem;
-  margin-top: 1rem;
+  margin-top: 0.8rem;
   max-height: 420px;
   overflow: auto;
   padding-right: 0.2rem;
@@ -1677,6 +1753,11 @@ textarea:focus {
 
   .help-modal {
     max-height: 92vh;
+  }
+
+  .scan-progress-card {
+    grid-template-columns: 1fr;
+    justify-items: start;
   }
 
   .steam-library-list {

@@ -184,6 +184,7 @@ export interface UiPreferences {
   libraryFilter: string;
   librarySort: "added-desc" | "play-desc" | "alpha-asc";
   discoveryCandidateFilter: string;
+  torrentSourceFilter: string;
   selectedTorrentSourceUrl: string | null;
   selectedTorrentIndex: number;
   torrentDefaultOutputDir: string;
@@ -202,13 +203,14 @@ export interface SyncEventPayload {
 }
 
 export interface DiscoveryStatusPayload {
-  phase: "started" | "root-started" | "matching" | "root-completed" | "completed" | "failed";
+  phase: "started" | "root-started" | "walking" | "matching" | "root-completed" | "completed" | "failed";
   scanRoot: string | null;
   rootIndex: number;
   rootCount: number;
   processedExecutables: number;
   running: boolean;
   message?: string;
+  currentPath?: string | null;
 }
 
 export interface GoogleOAuthPayload {

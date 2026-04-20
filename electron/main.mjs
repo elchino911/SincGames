@@ -113,6 +113,7 @@ let state = {
     libraryFilter: "",
     librarySort: "added-desc",
     discoveryCandidateFilter: "",
+    torrentSourceFilter: "",
     selectedTorrentSourceUrl: null,
     selectedTorrentIndex: 0,
     torrentDefaultOutputDir: "",
@@ -273,6 +274,7 @@ function normalizeUiPreferences(preferences) {
     librarySort,
     discoveryCandidateFilter:
       typeof preferences?.discoveryCandidateFilter === "string" ? preferences.discoveryCandidateFilter : "",
+    torrentSourceFilter: typeof preferences?.torrentSourceFilter === "string" ? preferences.torrentSourceFilter : "",
     selectedTorrentSourceUrl: typeof preferences?.selectedTorrentSourceUrl === "string" ? preferences.selectedTorrentSourceUrl : null,
     selectedTorrentIndex: Number.isInteger(preferences?.selectedTorrentIndex) && preferences.selectedTorrentIndex >= 0
       ? preferences.selectedTorrentIndex
@@ -1334,7 +1336,8 @@ ipcMain.handle("discovery:scan", async () => {
     rootIndex: 0,
     rootCount: state.scanRoots.length,
     processedExecutables: 0,
-    running: true
+    running: true,
+    currentPath: null
   });
   await emitBootstrap();
 
@@ -1349,7 +1352,8 @@ ipcMain.handle("discovery:scan", async () => {
       rootIndex: state.scanRoots.length,
       rootCount: state.scanRoots.length,
       processedExecutables: result.candidates.length,
-      running: false
+      running: false,
+      currentPath: null
     });
     return {
       candidates: state.discoveryCandidates,
@@ -1365,7 +1369,8 @@ ipcMain.handle("discovery:scan", async () => {
       rootCount: state.scanRoots.length,
       processedExecutables: 0,
       running: false,
-      message: error.message || "No se pudo completar el escaneo."
+      message: error.message || "No se pudo completar el escaneo.",
+      currentPath: null
     });
     emitWarning(error.message || "No se pudo completar el escaneo.");
     throw error;

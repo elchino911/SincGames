@@ -672,20 +672,6 @@ function App() {
     );
   }, [discoveryCandidateFilter, discoveryCandidates]);
 
-  const filteredTorrentSources = useMemo(() => {
-    const needle = torrentSourceFilter.trim().toLowerCase();
-    if (!needle) {
-      return torrentSources;
-    }
-
-    return torrentSources.filter((source) =>
-      [source.release.name, source.sourceUrl, source.extractionPassword || ""]
-        .join(" ")
-        .toLowerCase()
-        .includes(needle)
-    );
-  }, [torrentSourceFilter, torrentSources]);
-
   const selectedActivity = useMemo(
     () => activity.filter((item) => !selectedGame || item.gameId === selectedGame.id),
     [activity, selectedGame]
@@ -704,8 +690,28 @@ function App() {
     () => torrentSources.find((source) => source.sourceUrl === selectedTorrentSourceUrl) || torrentSources[0] || null,
     [torrentSources, selectedTorrentSourceUrl]
   );
-  const selectedTorrentRelease =
-    selectedTorrentSource?.release.downloads[selectedTorrentIndex] || selectedTorrentSource?.release.downloads[0] || null;
+  const filteredTorrentReleaseEntries = useMemo(() => {
+    const needle = torrentSourceFilter.trim().toLowerCase();
+    const downloads = selectedTorrentSource?.release.downloads || [];
+
+    return downloads
+      .map((download, actualIndex) => ({ download, actualIndex }))
+      .filter(({ download }) => {
+        if (!needle) {
+          return true;
+        }
+
+        return [download.title, download.fileSize || "", download.uploadDate || "", download.uris.join(" ")]
+          .join(" ")
+          .toLowerCase()
+          .includes(needle);
+      });
+  }, [selectedTorrentSource, torrentSourceFilter]);
+  const selectedTorrentReleaseEntry =
+    filteredTorrentReleaseEntries.find((entry) => entry.actualIndex === selectedTorrentIndex) ||
+    filteredTorrentReleaseEntries[0] ||
+    null;
+  const selectedTorrentRelease = selectedTorrentReleaseEntry?.download || null;
   const selectedTorrentMagnet = selectedTorrentRelease ? findMagnetUri(selectedTorrentRelease.uris) : null;
 
   const showStartupOverlay = Boolean(
@@ -779,6 +785,16 @@ function App() {
   useEffect(() => {
     setSelectedTorrentIndex(0);
   }, [selectedTorrentSource?.sourceUrl]);
+
+  useEffect(() => {
+    if (!filteredTorrentReleaseEntries.length) {
+      return;
+    }
+
+    if (!filteredTorrentReleaseEntries.some((entry) => entry.actualIndex === selectedTorrentIndex)) {
+      setSelectedTorrentIndex(filteredTorrentReleaseEntries[0].actualIndex);
+    }
+  }, [filteredTorrentReleaseEntries, selectedTorrentIndex]);
 
   if (bridgeError) {
     return (
@@ -1865,16 +1881,8 @@ function App() {
                 </div>
                 {torrentNotice ? <p className="success-copy">{torrentNotice}</p> : null}
               </div>
-              <div className="discovery-candidates-toolbar">
-                <input
-                  className="discovery-candidates-search"
-                  placeholder="Buscar fuente o URL"
-                  value={torrentSourceFilter}
-                  onChange={(event) => setTorrentSourceFilter(event.target.value)}
-                />
-              </div>
               <div className="torrent-source-list">
-                {filteredTorrentSources.map((source) => (
+                {torrentSources.map((source) => (
                   <article
                     key={source.sourceUrl}
                     className={`torrent-source-row ${selectedTorrentSource?.sourceUrl === source.sourceUrl ? "active" : ""}`}
@@ -1925,26 +1933,31 @@ function App() {
                   </article>
                 ))}
                 {!torrentSources.length ? <p className="muted-copy">Todavia no agregas URLs de release.</p> : null}
-                {torrentSources.length && !filteredTorrentSources.length ? (
-                  <p className="muted-copy">No hay fuentes que coincidan con la busqueda.</p>
-                ) : null}
               </div>
             </article>
 
             <article className="steam-card torrent-options-panel">
               <h4>Opciones encontradas</h4>
+              <div className="discovery-candidates-toolbar">
+                <input
+                  className="discovery-candidates-search"
+                  placeholder="Buscar dentro de los resultados de esta fuente"
+                  value={torrentSourceFilter}
+                  onChange={(event) => setTorrentSourceFilter(event.target.value)}
+                />
+              </div>
               <div className="torrent-choice-list">
-                {selectedTorrentSource?.release.downloads.map((download, index) => {
+                {filteredTorrentReleaseEntries.map(({ download, actualIndex }) => {
                   const magnetUri = findMagnetUri(download.uris);
                   return (
                     <article
-                      key={`${download.title}-${index}`}
-                      className={`torrent-choice ${selectedTorrentIndex === index ? "active" : ""}`}
+                      key={`${download.title}-${actualIndex}`}
+                      className={`torrent-choice ${selectedTorrentIndex === actualIndex ? "active" : ""}`}
                     >
                       <button
                         className="torrent-choice-main"
                         type="button"
-                        onClick={() => setSelectedTorrentIndex(index)}
+                        onClick={() => setSelectedTorrentIndex(actualIndex)}
                       >
                         <strong>{download.title}</strong>
                         <span>{download.fileSize || "Tamano no informado"}</span>
@@ -1966,6 +1979,9 @@ function App() {
                 })}
                 {!selectedTorrentSource?.release.downloads.length ? (
                   <p className="muted-copy">Selecciona una URL cargada para ver sus opciones.</p>
+                ) : null}
+                {selectedTorrentSource?.release.downloads.length && !filteredTorrentReleaseEntries.length ? (
+                  <p className="muted-copy">No hay resultados de esta fuente que coincidan con la busqueda.</p>
                 ) : null}
               </div>
             </article>

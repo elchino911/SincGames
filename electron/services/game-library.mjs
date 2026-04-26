@@ -57,3 +57,20 @@ export function resolveGameRemoval({ game, deleteInstallFolder = false } = {}) {
     installRootToDelete: deleteInstallFolder && installRoot ? installRoot : null
   };
 }
+
+export async function completeMutationWithRefresh({ applyLocalChange, syncRemoteChange, refresh }) {
+  await applyLocalChange();
+
+  let remoteError = null;
+  try {
+    await syncRemoteChange();
+  } catch (error) {
+    remoteError = error;
+  }
+
+  await refresh();
+
+  if (remoteError) {
+    throw remoteError;
+  }
+}

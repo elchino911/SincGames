@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { prepareManualGamePayload, resolveGameRemoval } from "./game-library.mjs";
+import { completeMutationWithRefresh, prepareManualGamePayload, resolveGameRemoval } from "./game-library.mjs";
 
 describe("prepareManualGamePayload", () => {
   it("derives process, install root, launch target, and default file patterns from the executable", () => {
@@ -78,5 +78,26 @@ describe("resolveGameRemoval", () => {
     });
 
     assert.equal(result.installRootToDelete, "D:\\Games\\Celeste");
+  });
+});
+
+describe("completeMutationWithRefresh", () => {
+  it("refreshes local state even when the remote sync fails", async () => {
+    const calls = [];
+
+    await assert.rejects(
+      () =>
+        completeMutationWithRefresh({
+          applyLocalChange: async () => calls.push("local"),
+          syncRemoteChange: async () => {
+            calls.push("remote");
+            throw new Error("Drive unavailable");
+          },
+          refresh: async () => calls.push("refresh")
+        }),
+      /Drive unavailable/
+    );
+
+    assert.deepEqual(calls, ["local", "remote", "refresh"]);
   });
 });

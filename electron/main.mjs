@@ -16,7 +16,7 @@ import { getProcessState, isProcessRunning, stopProcess } from "./services/syste
 import { TorrentService } from "./services/torrent-service.mjs";
 import { AppLogger } from "./services/app-logger.mjs";
 import { ArchiveExtractor } from "./services/archive-extractor.mjs";
-import { prepareManualGamePayload, resolveGameRemoval } from "./services/game-library.mjs";
+import { completeMutationWithRefresh, prepareManualGamePayload, resolveGameRemoval } from "./services/game-library.mjs";
 
 const { autoUpdater } = electronUpdater;
 
@@ -352,23 +352,27 @@ async function persistLocalState() {
 }
 
 async function persistState({ syncCloud = false } = {}) {
-  await stateStore.save(state);
-  syncService.setGames(state.games);
-  if (runtime.monitoringStarted) {
-    await syncService.start({ preservePendingTimers: true });
-  }
+  await completeMutationWithRefresh({
+    applyLocalChange: async () => {
+      await stateStore.save(state);
+      syncService.setGames(state.games);
+      if (runtime.monitoringStarted) {
+        await syncService.start({ preservePendingTimers: true });
+      }
 
-  if (state.offlineBackupDir) {
-    await syncOfflineCatalog();
-  }
-
-  if (syncCloud && driveService.isAuthenticated()) {
-    await driveService.syncCatalog(serializeCatalog());
-    state.lastCloudSyncAt = new Date().toISOString();
-    await stateStore.save(state);
-  }
-
-  await emitBootstrap();
+      if (state.offlineBackupDir) {
+        await syncOfflineCatalog();
+      }
+    },
+    syncRemoteChange: async () => {
+      if (syncCloud && driveService.isAuthenticated()) {
+        await driveService.syncCatalog(serializeCatalog());
+        state.lastCloudSyncAt = new Date().toISOString();
+        await stateStore.save(state);
+      }
+    },
+    refresh: emitBootstrap
+  });
 }
 
 function serializeCatalog() {

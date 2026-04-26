@@ -12,6 +12,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "test": "node --test",
     "build": "vite build",
     "preview": "vite preview",
     "dist": "npm run build && electron-builder --win nsis portable",

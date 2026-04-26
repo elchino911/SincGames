@@ -16,6 +16,7 @@ import { getProcessState, isProcessRunning, stopProcess } from "./services/syste
 import { TorrentService } from "./services/torrent-service.mjs";
 import { AppLogger } from "./services/app-logger.mjs";
 import { ArchiveExtractor } from "./services/archive-extractor.mjs";
+import { prepareManualGamePayload, resolveGameRemoval } from "./services/game-library.mjs";
 
 const { autoUpdater } = electronUpdater;
 
@@ -603,25 +604,26 @@ async function handleSnapshotCaptured(game, localSnapshot) {
 }
 
 function buildGameRecord(payload) {
-  const launchType = payload.launchType || (payload.executablePath ? "exe" : "exe");
-  const launchTarget = payload.launchTarget || payload.executablePath || "";
+  const preparedPayload = prepareManualGamePayload(payload);
+  const launchType = preparedPayload.launchType || (preparedPayload.executablePath ? "exe" : "exe");
+  const launchTarget = preparedPayload.launchTarget || preparedPayload.executablePath || "";
 
   return normalizeGameRecord({
-    id: payload.id || slugify(payload.title),
-    title: payload.title,
+    id: preparedPayload.id || slugify(preparedPayload.title),
+    title: preparedPayload.title,
     addedAt: new Date().toISOString(),
-    maxBackups: payload.maxBackups ?? 3,
-    savePath: payload.savePath,
-    processName: payload.processName,
-    executablePath: payload.executablePath || "",
-    installRoot: payload.installRoot || "",
+    maxBackups: preparedPayload.maxBackups ?? 3,
+    savePath: preparedPayload.savePath,
+    processName: preparedPayload.processName,
+    executablePath: preparedPayload.executablePath || "",
+    installRoot: preparedPayload.installRoot || "",
     installed: true,
     platform: "windows",
-    detectionSource: payload.detectionSource || "manual",
-    filePatterns: payload.filePatterns?.length ? payload.filePatterns : ["**/*"],
+    detectionSource: preparedPayload.detectionSource || "manual",
+    filePatterns: preparedPayload.filePatterns?.length ? preparedPayload.filePatterns : ["**/*"],
     launchType,
     launchTarget,
-    bannerPath: payload.bannerPath || "",
+    bannerPath: preparedPayload.bannerPath || "",
     totalPlaySeconds: 0,
     currentlyRunning: false,
     sessionStartedAt: null,
@@ -1165,6 +1167,15 @@ ipcMain.handle("dialog:pick-directory", async () => {
   return result.canceled ? null : result.filePaths[0];
 });
 
+ipcMain.handle("dialog:pick-executable", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openFile"],
+    filters: [{ name: "Ejecutables", extensions: ["exe"] }]
+  });
+
+  return result.canceled ? null : result.filePaths[0];
+});
+
 ipcMain.handle("dialog:pick-image", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ["openFile"],
@@ -1418,6 +1429,44 @@ ipcMain.handle("game:create-manual", async (_event, payload) => {
   upsertGame(game);
   await persistState({ syncCloud: true });
   return game;
+});
+
+ipcMain.handle("game:remove", async (_event, payload) => {
+  const gameIndex = state.games.findIndex((item) => item.id === payload.gameId);
+  if (gameIndex < 0) {
+    throw new Error("Juego no encontrado.");
+  }
+
+  const game = state.games[gameIndex];
+  const { installRootToDelete } = resolveGameRemoval({
+    game,
+    deleteInstallFolder: Boolean(payload.deleteInstallFolder)
+  });
+
+  if (installRootToDelete) {
+    const normalizedTarget = path.resolve(installRootToDelete);
+    const parsedTarget = path.parse(normalizedTarget);
+    if (normalizedTarget === parsedTarget.root) {
+      throw new Error("No se puede eliminar la raiz del disco.");
+    }
+
+    const stats = await fs.promises.stat(normalizedTarget).catch(() => null);
+    if (!stats || !stats.isDirectory()) {
+      throw new Error("No se encontro la carpeta de instalacion para eliminar.");
+    }
+
+    await fs.promises.rm(normalizedTarget, { recursive: true, force: true });
+  }
+
+  state.games.splice(gameIndex, 1);
+  await persistState({ syncCloud: true });
+  emitInfo(
+    installRootToDelete
+      ? `Se elimino ${game.title} de la biblioteca y se borro su carpeta de instalacion.`
+      : `Se elimino ${game.title} de la biblioteca.`,
+    null
+  );
+  return { ok: true, deletedInstallFolder: Boolean(installRootToDelete), installRoot: installRootToDelete };
 });
 
 ipcMain.handle("game:update", async (_event, payload) => {

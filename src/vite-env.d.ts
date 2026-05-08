@@ -17,6 +17,7 @@ declare global {
       openTorrentFolder: (downloadId: string) => Promise<{ ok: boolean; outputDir: string }>;
       connectGoogleDrive: () => Promise<{ ok: boolean; authUrl: string | null }>;
       pickDirectory: () => Promise<string | null>;
+      pickExecutable: () => Promise<string | null>;
       pickImage: () => Promise<string | null>;
       addScanRoot: (directoryPath: string) => Promise<string[]>;
       removeScanRoot: (directoryPath: string) => Promise<string[]>;
@@ -26,6 +27,7 @@ declare global {
       addGameFromCandidate: (candidateId: string) => Promise<GameRecord>;
       createManualGame: (payload: ManualGamePayload) => Promise<GameRecord>;
       updateGame: (payload: GameUpdatePayload) => Promise<GameRecord>;
+      removeGame: (payload: GameRemovalPayload) => Promise<{ ok: boolean; deletedInstallFolder: boolean; installRoot: string | null }>;
       getGameIcon: (gameId: string) => Promise<string | null>;
       launchGame: (gameId: string) => Promise<{ ok: boolean }>;
       closeGame: (gameId: string) => Promise<{ ok: boolean }>;
@@ -113,7 +115,7 @@ export interface ManualGamePayload {
   title: string;
   maxBackups?: number;
   savePath: string;
-  processName: string;
+  processName?: string;
   executablePath?: string;
   installRoot?: string;
   filePatterns?: string[];
@@ -134,6 +136,11 @@ export interface GameUpdatePayload {
   launchType?: LaunchType;
   launchTarget?: string;
   bannerPath?: string;
+}
+
+export interface GameRemovalPayload {
+  gameId: string;
+  deleteInstallFolder?: boolean;
 }
 
 export interface BootstrapPayload {

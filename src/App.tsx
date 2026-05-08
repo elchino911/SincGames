@@ -836,6 +836,14 @@ function App() {
     else updateEdit(field, directory);
   };
 
+  const pickExecutableInto = async (field: keyof GameFormState, mode: "manual" | "edit") => {
+    if (!bridge) return;
+    const executablePath = await bridge.pickExecutable();
+    if (!executablePath) return;
+    if (mode === "manual") updateManual(field, executablePath);
+    else updateEdit(field, executablePath);
+  };
+
   const pickImageInto = async (field: keyof GameFormState, mode: "manual" | "edit") => {
     if (!bridge) return;
     const imagePath = await bridge.pickImage();
@@ -891,16 +899,40 @@ function App() {
     try {
       await bridge.createManualGame({
         title: manualForm.title,
-        processName: manualForm.processName,
         savePath: manualForm.savePath,
         executablePath: manualForm.executablePath,
-        installRoot: manualForm.installRoot,
-        filePatterns: splitPatterns(manualForm.filePatterns),
-        launchType: manualForm.launchType,
-        launchTarget: manualForm.launchTarget,
         bannerPath: manualForm.bannerPath
       });
       setManualForm(emptyForm());
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const removeGame = async (game: GameRecord, deleteInstallFolder: boolean) => {
+    if (!bridge) return;
+    const executablePath = game.executablePath || "";
+    const installRoot = game.installRoot || (/[\\/]/.test(executablePath) ? executablePath.replace(/[\\/][^\\/]+$/, "") : "");
+    const prompt = deleteInstallFolder
+      ? `Esto quitara "${game.title}" de la biblioteca y eliminara la carpeta:\n\n${installRoot || "Sin carpeta detectada"}\n\nEsta accion no se puede deshacer.`
+      : `Esto quitara "${game.title}" de la biblioteca, pero conservara los archivos instalados.`;
+
+    if (!window.confirm(prompt)) return;
+
+    const actionId = deleteInstallFolder ? `delete-folder:${game.id}` : `delete-record:${game.id}`;
+    setBusyAction(actionId);
+    try {
+      await bridge.removeGame({ gameId: game.id, deleteInstallFolder });
+      setSelectedGameId((current) => (current === game.id ? null : current));
+    } catch (error) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: game.id,
+          message: error instanceof Error ? error.message : "No se pudo eliminar el juego."
+        },
+        ...current
+      ]);
     } finally {
       setBusyAction(null);
     }
@@ -1560,6 +1592,30 @@ function App() {
           <label><span>Patrones</span><input value={editForm.filePatterns} onChange={(e) => updateEdit("filePatterns", e.target.value)} /></label>
           <button className="secondary-button" type="submit" disabled={busyAction === "edit"}>Guardar cambios</button>
         </form>
+        <div className="danger-zone">
+          <div>
+            <span>Eliminar de biblioteca</span>
+            <p>Quita este juego del catalogo local y remoto. Puedes conservar los archivos instalados o borrar tambien la carpeta detectada.</p>
+          </div>
+          <div className="steam-actions-row danger-actions">
+            <button
+              className="secondary-button danger-button"
+              type="button"
+              onClick={() => void removeGame(selectedGame, false)}
+              disabled={busyAction === `delete-record:${selectedGame.id}` || busyAction === `delete-folder:${selectedGame.id}`}
+            >
+              Solo registro
+            </button>
+            <button
+              className="secondary-button danger-button danger-button-strong"
+              type="button"
+              onClick={() => void removeGame(selectedGame, true)}
+              disabled={busyAction === `delete-record:${selectedGame.id}` || busyAction === `delete-folder:${selectedGame.id}`}
+            >
+              Registro y carpeta
+            </button>
+          </div>
+        </div>
       </article>
     );
   };
@@ -1637,7 +1693,6 @@ function App() {
               <h4>Alta manual</h4>
               <form className="steam-form" onSubmit={submitManualGame}>
                 <label><span>Nombre</span><input value={manualForm.title} onChange={(e) => updateManual("title", e.target.value)} required /></label>
-                <label><span>Proceso</span><input value={manualForm.processName} onChange={(e) => updateManual("processName", e.target.value)} required /></label>
                 <label>
                   <span>Ruta de save</span>
                   <div className="field-with-action">
@@ -1645,8 +1700,13 @@ function App() {
                     <button className="mini-button" type="button" onClick={() => void pickDirectoryInto("savePath", "manual")}>Elegir</button>
                   </div>
                 </label>
-                <label><span>Ejecutable</span><input value={manualForm.executablePath} onChange={(e) => updateManual("executablePath", e.target.value)} /></label>
-                <label><span>Instalacion</span><input value={manualForm.installRoot} onChange={(e) => updateManual("installRoot", e.target.value)} /></label>
+                <label>
+                  <span>Ejecutable</span>
+                  <div className="field-with-action">
+                    <input value={manualForm.executablePath} onChange={(e) => updateManual("executablePath", e.target.value)} required />
+                    <button className="mini-button" type="button" onClick={() => void pickExecutableInto("executablePath", "manual")}>Elegir</button>
+                  </div>
+                </label>
                 <label>
                   <span>Banner</span>
                   <div className="field-with-action">
@@ -1654,17 +1714,6 @@ function App() {
                     <button className="mini-button" type="button" onClick={() => void pickImageInto("bannerPath", "manual")}>Elegir</button>
                   </div>
                 </label>
-                <label>
-                  <span>Tipo de lanzamiento</span>
-                  <select value={manualForm.launchType} onChange={(e) => updateManual("launchType", e.target.value)}>
-                    <option value="exe">EXE</option>
-                    <option value="steam">Steam</option>
-                    <option value="uri">URI</option>
-                    <option value="command">Comando</option>
-                  </select>
-                </label>
-                <label><span>{launchHelp(manualForm.launchType)}</span><input value={manualForm.launchTarget} onChange={(e) => updateManual("launchTarget", e.target.value)} /></label>
-                <label><span>Patrones</span><input value={manualForm.filePatterns} onChange={(e) => updateManual("filePatterns", e.target.value)} /></label>
                 <button className="secondary-button" type="submit" disabled={busyAction === "manual"}>Guardar juego</button>
               </form>
             </article>

@@ -33,6 +33,7 @@ declare global {
       closeGame: (gameId: string) => Promise<{ ok: boolean }>;
       backupNow: (gameId: string) => Promise<{ ok: boolean; snapshot: LocalSnapshot | null }>;
       restoreLatestRemote: (gameId: string) => Promise<{ restoredAt: string; tempBackupDir: string }>;
+      listProtonVersions: () => Promise<{ steamPath: string | null; versions: string[] }>;
       onSyncEvent: (callback: (payload: SyncEventPayload) => void) => () => void;
       onStateUpdated: (callback: (payload: BootstrapPayload) => void) => () => void;
       onDiscoveryStatus: (callback: (payload: DiscoveryStatusPayload) => void) => () => void;
@@ -41,7 +42,7 @@ declare global {
   }
 }
 
-export type LaunchType = "exe" | "steam" | "uri" | "command";
+export type LaunchType = "exe" | "steam" | "uri" | "command" | "proton";
 
 export interface RemoteBackup {
   id: string;
@@ -78,6 +79,9 @@ export interface GameRecord {
   detectionSource?: "manual" | "manifest" | "scan";
   launchType?: LaunchType;
   launchTarget?: string;
+  protonVersion?: string;
+  protonCompatDataPath?: string;
+  launchEnvironment?: string;
   bannerPath?: string;
   totalPlaySeconds?: number;
   currentlyRunning?: boolean;
@@ -86,7 +90,7 @@ export interface GameRecord {
   processStartedAt?: string | null;
   trackedUntilAt?: string | null;
   installed: boolean;
-  platform: "windows";
+  platform: NodeJS.Platform | "windows";
   filePatterns: string[];
   latestLocalSave: LocalSnapshot | null;
   latestRemoteSave: RemoteBackup | null;
@@ -121,6 +125,9 @@ export interface ManualGamePayload {
   filePatterns?: string[];
   launchType?: LaunchType;
   launchTarget?: string;
+  protonVersion?: string;
+  protonCompatDataPath?: string;
+  launchEnvironment?: string;
   bannerPath?: string;
 }
 
@@ -135,6 +142,9 @@ export interface GameUpdatePayload {
   filePatterns?: string[];
   launchType?: LaunchType;
   launchTarget?: string;
+  protonVersion?: string;
+  protonCompatDataPath?: string;
+  launchEnvironment?: string;
   bannerPath?: string;
 }
 

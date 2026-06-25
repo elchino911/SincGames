@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+
+const execAsync = promisify(exec);
+const isLinux = process.platform === "linux";
+const isWindows = process.platform === "win32";
 
 const ignoredDirNames = new Set([
   "$recycle.bin",
@@ -11,7 +17,9 @@ const ignoredDirNames = new Set([
   "logs",
   "redist",
   "_commonredist",
-  "__installer"
+  "__installer",
+  "sbin",
+  "include"
 ]);
 
 const ignoredExeNames = new Set([
@@ -19,7 +27,13 @@ const ignoredExeNames = new Set([
   "uninstall.exe",
   "setup.exe",
   "launcher.exe",
-  "crashreporter.exe"
+  "crashreporter.exe",
+  "uninstall",
+  "setup.sh",
+  "install.sh",
+  "README",
+  "LICENSE",
+  "Changelog"
 ]);
 
 const ignoredExeSubstrings = [
@@ -63,6 +77,32 @@ const ignoredPathSegments = [
   `${path.sep}easyanticheat${path.sep}`,
   `${path.sep}battleye${path.sep}`
 ];
+
+async function isExecutableFile(filePath) {
+  if (isWindows) {
+    return filePath.toLowerCase().endsWith(".exe");
+  }
+
+  try {
+    const stats = await fs.promises.stat(filePath);
+    return (stats.mode & 0o111) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+async function isScriptExecutable(filePath) {
+  if (isWindows) {
+    return false;
+  }
+
+  const lowerName = filePath.toLowerCase();
+  if (!lowerName.endsWith(".sh") && !lowerName.endsWith(".py")) {
+    return false;
+  }
+
+  return isExecutableFile(filePath);
+}
 
 export class GameDiscoveryService {
   constructor({ env, manifestService }) {
@@ -111,11 +151,16 @@ export class GameDiscoveryService {
           scanRoot
         });
 
+        const baseName = path.basename(exePath);
+        const stem = isWindows
+          ? path.basename(exePath, ".exe")
+          : baseName.replace(/\.(sh|py)$/, "");
+
         candidates.push({
           id: crypto.randomUUID(),
-          title: manifestMatch?.title || humanize(path.basename(exePath, ".exe")),
+          title: manifestMatch?.title || humanize(stem),
           executablePath: exePath,
-          processName: path.basename(exePath),
+          processName: baseName,
           installRoot,
           suggestedSavePath: manifestMatch?.savePath || "",
           filePatterns: manifestMatch?.filePatterns?.length ? manifestMatch.filePatterns : ["**/*"],
@@ -175,13 +220,35 @@ async function walkForExecutables(currentDir, depth, maxDepth, options = {}) {
       continue;
     }
 
-    const lowerName = entry.name.toLowerCase();
     const executablePath = path.join(currentDir, entry.name);
-    if (!lowerName.endsWith(".exe") || shouldIgnoreExecutable(lowerName, executablePath)) {
+    const lowerName = entry.name.toLowerCase();
+
+    if (shouldIgnoreExecutable(lowerName, executablePath)) {
       continue;
     }
 
-    files.push(executablePath);
+    if (isWindows) {
+      if (!lowerName.endsWith(".exe")) {
+        continue;
+      }
+      files.push(executablePath);
+    } else {
+      // Linux: also detect .exe files (Wine/Proton games)
+      if (lowerName.endsWith(".exe")) {
+        files.push(executablePath);
+        continue;
+      }
+
+      if (await isExecutableFile(executablePath)) {
+        const ext = path.extname(lowerName).toLowerCase();
+        if (ext === ".so" || ext === ".o" || ext === ".a" || ext === ".dylib") {
+          continue;
+        }
+        files.push(executablePath);
+      } else if (await isScriptExecutable(executablePath)) {
+        files.push(executablePath);
+      }
+    }
   }
 
   return files;

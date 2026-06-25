@@ -7,7 +7,7 @@
  *   processName: string;
  *   executablePath?: string;
  *   installed: boolean;
- *   platform: "windows";
+ *   platform: NodeJS.Platform | "windows";
  *   filePatterns: string[];
  *   lastLocalScanAt?: string;
  *   latestLocalSave?: SaveSnapshot | null;

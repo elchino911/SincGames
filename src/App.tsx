@@ -26,6 +26,9 @@ type GameFormState = {
   filePatterns: string;
   launchType: LaunchType;
   launchTarget: string;
+  protonVersion: string;
+  protonCompatDataPath: string;
+  launchEnvironment: string;
   bannerPath: string;
 };
 
@@ -40,6 +43,9 @@ const emptyForm = (): GameFormState => ({
   filePatterns: "**/*",
   launchType: "exe",
   launchTarget: "",
+  protonVersion: "",
+  protonCompatDataPath: "",
+  launchEnvironment: "",
   bannerPath: ""
 });
 
@@ -54,6 +60,9 @@ const toFormState = (game: GameRecord | null): GameFormState =>
         filePatterns: game.filePatterns.join(", "),
         launchType: game.launchType || "exe",
         launchTarget: game.launchTarget || game.executablePath || "",
+        protonVersion: game.protonVersion || "",
+        protonCompatDataPath: game.protonCompatDataPath || "",
+        launchEnvironment: game.launchEnvironment || "",
         bannerPath: game.bannerPath || ""
       }
     : emptyForm();
@@ -82,6 +91,7 @@ const launchHelp = (launchType: LaunchType) => {
   if (launchType === "steam") return "App ID o URI steam://";
   if (launchType === "uri") return "URI externa o deep link";
   if (launchType === "command") return "Comando completo";
+  if (launchType === "proton") return "Ruta al ejecutable .exe";
   return "Ruta al ejecutable";
 };
 
@@ -376,6 +386,7 @@ function App() {
   const [liveNow, setLiveNow] = useState(() => Date.now());
   const [gameIconCache, setGameIconCache] = useState<Record<string, { source: string; dataUrl: string | null }>>({});
   const [uiPreferencesHydrated, setUiPreferencesHydrated] = useState(false);
+  const [protonVersions, setProtonVersions] = useState<string[]>([]);
 
   useEffect(() => {
     if (!bridge) return;
@@ -395,6 +406,13 @@ function App() {
         if (!mounted) return;
         setBridgeError(error instanceof Error ? error.message : "No se pudo cargar la app.");
       });
+
+    bridge.listProtonVersions()
+      .then((result) => {
+        if (!mounted) return;
+        setProtonVersions(result.versions || []);
+      })
+      .catch(() => { /* ignore */ });
 
     const offEvents = bridge.onSyncEvent((payload) => {
       setActivity((current) => [payload, ...current].slice(0, 120));
@@ -901,6 +919,13 @@ function App() {
         title: manualForm.title,
         savePath: manualForm.savePath,
         executablePath: manualForm.executablePath,
+        installRoot: manualForm.installRoot,
+        filePatterns: splitPatterns(manualForm.filePatterns),
+        launchType: manualForm.launchType,
+        launchTarget: manualForm.launchTarget,
+        protonVersion: manualForm.protonVersion || undefined,
+        protonCompatDataPath: manualForm.protonCompatDataPath || undefined,
+        launchEnvironment: manualForm.launchEnvironment || undefined,
         bannerPath: manualForm.bannerPath
       });
       setManualForm(emptyForm());
@@ -953,6 +978,9 @@ function App() {
         filePatterns: splitPatterns(editForm.filePatterns),
         launchType: editForm.launchType,
         launchTarget: editForm.launchTarget,
+        protonVersion: editForm.protonVersion || undefined,
+        protonCompatDataPath: editForm.protonCompatDataPath || undefined,
+        launchEnvironment: editForm.launchEnvironment || undefined,
         bannerPath: editForm.bannerPath
       });
     } finally {
@@ -1586,9 +1614,25 @@ function App() {
               <option value="steam">Steam</option>
               <option value="uri">URI</option>
               <option value="command">Comando</option>
+              <option value="proton">Proton</option>
             </select>
           </label>
           <label><span>{launchHelp(editForm.launchType)}</span><input value={editForm.launchTarget} onChange={(e) => updateEdit("launchTarget", e.target.value)} /></label>
+          {editForm.launchType === "proton" ? (
+            <>
+              <label>
+                <span>Version de Proton</span>
+                <select value={editForm.protonVersion} onChange={(e) => updateEdit("protonVersion", e.target.value)}>
+                  <option value="">Seleccionar Proton...</option>
+                  {protonVersions.map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+              </label>
+              <label><span>Prefijo Proton</span><input value={editForm.protonCompatDataPath} onChange={(e) => updateEdit("protonCompatDataPath", e.target.value)} placeholder="Steam/steamapps/compatdata/..." /></label>
+              <label><span>Variables extra</span><textarea value={editForm.launchEnvironment} onChange={(e) => updateEdit("launchEnvironment", e.target.value)} placeholder={'WINEDLLOVERRIDES="steam_api64=n,b"\nSteamAppId=480'} /></label>
+            </>
+          ) : null}
           <label><span>Patrones</span><input value={editForm.filePatterns} onChange={(e) => updateEdit("filePatterns", e.target.value)} /></label>
           <button className="secondary-button" type="submit" disabled={busyAction === "edit"}>Guardar cambios</button>
         </form>
@@ -1678,7 +1722,8 @@ function App() {
                   <article className="steam-feed-item" key={candidate.id}>
                     <span>{candidate.processName}</span>
                     <p>{candidate.title}</p>
-                    <small>{candidate.suggestedSavePath}</small>
+                    <small className="candidate-path">{candidate.executablePath}</small>
+                    {candidate.suggestedSavePath ? <small className="candidate-save-path">Saves: {candidate.suggestedSavePath}</small> : null}
                     <button className="mini-button" onClick={() => void importCandidate(candidate)} disabled={busyAction === `import:${candidate.id}`}>Importar</button>
                   </article>
                 ))}
@@ -1714,6 +1759,33 @@ function App() {
                     <button className="mini-button" type="button" onClick={() => void pickImageInto("bannerPath", "manual")}>Elegir</button>
                   </div>
                 </label>
+                <label>
+                  <span>Tipo de lanzamiento</span>
+                  <select value={manualForm.launchType} onChange={(e) => updateManual("launchType", e.target.value)}>
+                    <option value="exe">EXE</option>
+                    <option value="steam">Steam</option>
+                    <option value="uri">URI</option>
+                    <option value="command">Comando</option>
+                    <option value="proton">Proton</option>
+                  </select>
+                </label>
+                <label><span>{launchHelp(manualForm.launchType)}</span><input value={manualForm.launchTarget} onChange={(e) => updateManual("launchTarget", e.target.value)} /></label>
+                {manualForm.launchType === "proton" ? (
+                  <>
+                    <label>
+                      <span>Version de Proton</span>
+                      <select value={manualForm.protonVersion} onChange={(e) => updateManual("protonVersion", e.target.value)}>
+                        <option value="">Seleccionar Proton...</option>
+                        {protonVersions.map((v) => (
+                          <option key={v} value={v}>{v}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label><span>Prefijo Proton</span><input value={manualForm.protonCompatDataPath} onChange={(e) => updateManual("protonCompatDataPath", e.target.value)} placeholder="Steam/steamapps/compatdata/..." /></label>
+                    <label><span>Variables extra</span><textarea value={manualForm.launchEnvironment} onChange={(e) => updateManual("launchEnvironment", e.target.value)} placeholder={'WINEDLLOVERRIDES="steam_api64=n,b"\nSteamAppId=480'} /></label>
+                  </>
+                ) : null}
+                <label><span>Patrones</span><input value={manualForm.filePatterns} onChange={(e) => updateManual("filePatterns", e.target.value)} /></label>
                 <button className="secondary-button" type="submit" disabled={busyAction === "manual"}>Guardar juego</button>
               </form>
             </article>

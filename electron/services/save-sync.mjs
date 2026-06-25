@@ -190,7 +190,7 @@ export class SaveSyncService {
   }
 
   async captureIfStable(game, options = {}) {
-    const running = await isProcessRunning(game.processName);
+    const running = await isProcessRunning(game.processName, game.executablePath);
     if (running) {
       const message = options.manual
         ? `No se puede respaldar ${game.title} mientras ${game.processName} sigue abierto.`

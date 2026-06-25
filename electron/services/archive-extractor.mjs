@@ -79,7 +79,9 @@ function normalizeFolderToken(value) {
 
 async function findCommandOnPath(commandName) {
   try {
-    const { stdout } = await execFileAsync("where.exe", [commandName], { windowsHide: true });
+    const command = process.platform === "win32" ? "where.exe" : "which";
+    const opts = process.platform === "win32" ? { windowsHide: true } : {};
+    const { stdout } = await execFileAsync(command, [commandName], opts);
     const resolved = stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -300,7 +302,7 @@ export class ArchiveExtractor {
       });
 
       await execFileAsync(tool.command, tool.buildArgs(group.primaryArchivePath, group.targetDir, extractionPassword), {
-        windowsHide: true
+        ...(process.platform === "win32" ? { windowsHide: true } : {})
       });
 
       extractedArchiveCount += 1;

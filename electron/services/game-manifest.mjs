@@ -116,8 +116,8 @@ function extractSaveRules(config) {
 
   for (const [rulePath, metadata] of Object.entries(files)) {
     const tags = Array.isArray(metadata?.tags) ? metadata.tags : [];
-    const windowsAllowed = matchesWindowsConstraint(metadata?.when);
-    if (windowsAllowed && tags.includes("save")) {
+    const platformAllowed = matchesPlatformConstraint(metadata?.when);
+    if (platformAllowed && tags.includes("save")) {
       rules.push(rulePath);
     }
   }
@@ -125,16 +125,18 @@ function extractSaveRules(config) {
   return rules;
 }
 
-function matchesWindowsConstraint(when) {
+function matchesPlatformConstraint(when) {
   if (!when) {
     return true;
   }
 
+  const currentOs = process.platform === "win32" ? "windows" : process.platform === "linux" ? "linux" : process.platform;
+
   if (Array.isArray(when)) {
-    return when.some((entry) => !entry?.os || entry.os === "windows");
+    return when.some((entry) => !entry?.os || entry.os === currentOs);
   }
 
-  return !when.os || when.os === "windows";
+  return !when.os || when.os === currentOs;
 }
 
 function resolveManifestPath(rulePath, { exePath, installRoot, scanRoot }) {
@@ -145,6 +147,9 @@ function resolveManifestPath(rulePath, { exePath, installRoot, scanRoot }) {
     "<winLocalAppData>": process.env.LOCALAPPDATA || path.join(home, "AppData", "Local"),
     "<winDocuments>": path.join(home, "Documents"),
     "<winSavedGames>": path.join(home, "Saved Games"),
+    "<linuxHome>": home,
+    "<linuxLocalShare>": process.env.XDG_DATA_HOME || path.join(home, ".local", "share"),
+    "<linuxConfig>": process.env.XDG_CONFIG_HOME || path.join(home, ".config"),
     "<game>": installRoot,
     "<base>": installRoot,
     "<root>": scanRoot,

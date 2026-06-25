@@ -1,6 +1,6 @@
 {
   "name": "sincgames",
-  "version": "0.7.16",
+  "version": "0.7.17",
   "private": false,
   "description": "Desktop app to detect, package, and sync game saves to Google Drive.",
   "author": "elchino911",
@@ -16,7 +16,16 @@
     "build": "vite build",
     "preview": "vite preview",
     "dist": "npm run build && electron-builder --win nsis portable",
-    "release": "npm run build && electron-builder --win nsis portable --publish always"
+    "dist:linux": "npm run build && electron-builder --linux AppImage rpm",
+    "dist:linux:appimage": "npm run build && electron-builder --linux AppImage",
+    "dist:linux:rpm": "npm run build && electron-builder --linux rpm",
+    "dist:linux:deb": "npm run build && electron-builder --linux deb",
+    "dist:linux:all": "npm run build && electron-builder --linux AppImage rpm deb",
+    "dist:all": "npm run build && electron-builder --win nsis portable --linux AppImage rpm",
+    "release": "npm run build && electron-builder --win nsis portable --publish always",
+    "release:linux": "npm run build && electron-builder --linux AppImage rpm --publish always",
+    "release:linux:rpm": "npm run build && electron-builder --linux rpm --publish always",
+    "release:linux:deb": "npm run build && electron-builder --linux deb --publish always"
   },
   "dependencies": {
     "archiver": "^7.0.1",
@@ -43,6 +52,16 @@
     "wait-on": "^8.0.3"
   },
   "build": {
+    "linux": {
+      "target": [
+        "AppImage",
+        "rpm",
+        "deb"
+      ],
+      "maintainer": "elchino911 <elchino911@users.noreply.github.com>",
+      "category": "Utility",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
     "appId": "com.sincgames.desktop",
     "productName": "SincGames",
     "directories": {

@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld("sincgames", {
   closeGame: (gameId) => ipcRenderer.invoke("game:close", gameId),
   backupNow: (gameId) => ipcRenderer.invoke("sync:backup-now", gameId),
   restoreLatestRemote: (gameId) => ipcRenderer.invoke("game:restore-latest", gameId),
+  listProtonVersions: () => ipcRenderer.invoke("proton:list-versions"),
   onSyncEvent: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("sync:event", listener);

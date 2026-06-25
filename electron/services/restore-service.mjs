@@ -16,7 +16,7 @@ export class RestoreService {
       throw new Error("No hay un backup remoto disponible para restaurar.");
     }
 
-    if (await isProcessRunning(game.processName)) {
+    if (await isProcessRunning(game.processName, game.executablePath)) {
       throw new Error(`Cierra ${game.processName} antes de restaurar el save.`);
     }
 

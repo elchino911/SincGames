@@ -1,7 +1,8 @@
 import path from "node:path";
 import fs from "node:fs";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
-import { exec, execFile } from "node:child_process";
+import { exec, execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import crypto from "node:crypto";
 import { Worker } from "node:worker_threads";
@@ -12,7 +13,7 @@ import { GoogleDriveService } from "./services/google-drive.mjs";
 import { SaveSyncService } from "./services/save-sync.mjs";
 import { StateStore } from "./services/state-store.mjs";
 import { RestoreService } from "./services/restore-service.mjs";
-import { getProcessState, isProcessRunning, stopProcess } from "./services/system.mjs";
+import { getProcessState, getProtonExecutablePath, getWineBinary, getSteamPath, isProcessRunning, listProtonVersions, stopProcess } from "./services/system.mjs";
 import { TorrentService } from "./services/torrent-service.mjs";
 import { AppLogger } from "./services/app-logger.mjs";
 import { ArchiveExtractor } from "./services/archive-extractor.mjs";
@@ -25,9 +26,53 @@ const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function spawnDetached(command, args = [], options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      ...options,
+      detached: true,
+      stdio: "ignore",
+      windowsHide: process.platform === "win32"
+    });
+
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve(child);
+    });
+  });
+}
+
+function parseLaunchEnvironment(value) {
+  if (!value || typeof value !== "string") {
+    return {};
+  }
+
+  return Object.fromEntries(
+    value
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"))
+      .map((line) => {
+        const separatorIndex = line.indexOf("=");
+        if (separatorIndex <= 0) return null;
+        const key = line.slice(0, separatorIndex).trim();
+        let envValue = line.slice(separatorIndex + 1).trim();
+        if (
+          (envValue.startsWith('"') && envValue.endsWith('"')) ||
+          (envValue.startsWith("'") && envValue.endsWith("'"))
+        ) {
+          envValue = envValue.slice(1, -1);
+        }
+        return /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ? [key, envValue] : null;
+      })
+      .filter(Boolean)
+  );
+}
+
 function loadEnvFiles() {
   const appDataEnvPath = path.join(
-    process.env.APPDATA || process.cwd(),
+    process.env.APPDATA || process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
     process.env.APP_NAME || "SincGames",
     ".env.local"
   );
@@ -66,7 +111,8 @@ const env = {
 };
 
 function getUserEnvFilePath() {
-  return path.join(process.env.APPDATA || process.cwd(), env.APP_NAME || "SincGames", ".env.local");
+  const configDir = process.env.APPDATA || process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  return path.join(configDir, env.APP_NAME || "SincGames", ".env.local");
 }
 
 async function saveUserEnvFile() {
@@ -622,11 +668,14 @@ function buildGameRecord(payload) {
     executablePath: preparedPayload.executablePath || "",
     installRoot: preparedPayload.installRoot || "",
     installed: true,
-    platform: "windows",
+    platform: process.platform,
     detectionSource: preparedPayload.detectionSource || "manual",
     filePatterns: preparedPayload.filePatterns?.length ? preparedPayload.filePatterns : ["**/*"],
     launchType,
     launchTarget,
+    protonVersion: preparedPayload.protonVersion || "",
+    protonCompatDataPath: preparedPayload.protonCompatDataPath || "",
+    launchEnvironment: preparedPayload.launchEnvironment || "",
     bannerPath: preparedPayload.bannerPath || "",
     totalPlaySeconds: 0,
     currentlyRunning: false,
@@ -646,6 +695,9 @@ function normalizeGameRecord(game) {
     installRoot: game.installRoot || "",
     launchType: game.launchType || (game.executablePath ? "exe" : "exe"),
     launchTarget: game.launchTarget || game.executablePath || "",
+    protonVersion: game.protonVersion || "",
+    protonCompatDataPath: game.protonCompatDataPath || "",
+    launchEnvironment: game.launchEnvironment || "",
     bannerPath: game.bannerPath || "",
     totalPlaySeconds: Number(game.totalPlaySeconds || 0),
     currentlyRunning: Boolean(game.currentlyRunning),
@@ -744,13 +796,37 @@ async function findPrimaryExecutable(rootDir) {
 }
 
 function buildDefaultSavePathFromProcess(processName) {
-  const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || process.cwd(), "AppData", "Local");
   const stem = path.basename(processName || "", path.extname(processName || ""));
   if (!stem) {
     return "";
   }
 
-  return path.join(localAppData, stem, "Saved", "SaveGames");
+  if (process.platform === "win32") {
+    const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || process.cwd(), "AppData", "Local");
+    return path.join(localAppData, stem, "Saved", "SaveGames");
+  }
+
+  const dataHome = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
+  return path.join(dataHome, stem);
+}
+
+async function getDefaultLaunchForExecutable(executablePath) {
+  if (process.platform !== "linux" || path.extname(executablePath || "").toLowerCase() !== ".exe") {
+    return {
+      launchType: "exe",
+      launchTarget: executablePath,
+      protonVersion: ""
+    };
+  }
+
+  const protonResult = await listProtonVersions();
+  const protonVersion = protonResult.versions[0] || "";
+
+  return {
+    launchType: protonVersion ? "proton" : "exe",
+    launchTarget: executablePath,
+    protonVersion
+  };
 }
 
 async function autoAddCompletedTorrentToLibrary(download) {
@@ -784,8 +860,7 @@ async function autoAddCompletedTorrentToLibrary(download) {
       installRoot,
       savePath: buildDefaultSavePathFromProcess(processName),
       detectionSource: "manual",
-      launchType: "exe",
-      launchTarget: executablePath
+      ...(await getDefaultLaunchForExecutable(executablePath))
     });
 
     upsertGame(game);
@@ -852,7 +927,7 @@ async function flushRunningSessions({ preserveRunningProcesses = false } = {}) {
       continue;
     }
 
-    const processState = preserveRunningProcesses ? await getProcessState(game.processName) : { running: false, startedAt: null };
+    const processState = preserveRunningProcesses ? await getProcessState(game.processName, game.executablePath) : { running: false, startedAt: null };
     const elapsedSeconds = getElapsedSeconds(game.sessionStartedAt, now);
     const trackedUntilAt = new Date(now).toISOString();
     const runningAfterFlush = preserveRunningProcesses && processState.running;
@@ -901,7 +976,7 @@ async function pollRunningStates() {
   const updatedGames = [];
 
   for (const game of state.games) {
-    const processState = await getProcessState(game.processName);
+    const processState = await getProcessState(game.processName, game.executablePath);
     const running = processState.running;
     let updated = game;
 
@@ -1057,6 +1132,16 @@ function resolveLaunchConfiguration(game) {
     return {
       kind: "external",
       target
+    };
+  }
+
+  if (launchType === "proton") {
+    return {
+      kind: "proton",
+      target,
+      protonVersion: game.protonVersion || "",
+      protonCompatDataPath: game.protonCompatDataPath || "",
+      launchEnvironment: game.launchEnvironment || ""
     };
   }
 
@@ -1407,8 +1492,7 @@ ipcMain.handle("game:add-from-candidate", async (_event, candidateId) => {
     installRoot: candidate.installRoot,
     filePatterns: candidate.filePatterns,
     detectionSource: candidate.detectionSource,
-    launchType: "exe",
-    launchTarget: candidate.executablePath
+    ...(await getDefaultLaunchForExecutable(candidate.executablePath))
   });
 
   upsertGame(game);
@@ -1427,7 +1511,10 @@ ipcMain.handle("game:create-manual", async (_event, payload) => {
     filePatterns: payload.filePatterns || ["**/*"],
     detectionSource: "manual",
     launchType: payload.launchType || (payload.executablePath ? "exe" : "uri"),
-    launchTarget: payload.launchTarget || payload.executablePath || ""
+    launchTarget: payload.launchTarget || payload.executablePath || "",
+    protonVersion: payload.protonVersion || "",
+    protonCompatDataPath: payload.protonCompatDataPath || "",
+    launchEnvironment: payload.launchEnvironment || ""
   });
 
   upsertGame(game);
@@ -1491,6 +1578,9 @@ ipcMain.handle("game:update", async (_event, payload) => {
     filePatterns: payload.filePatterns?.length ? payload.filePatterns : current.filePatterns,
     launchType: payload.launchType ?? current.launchType,
     launchTarget: payload.launchTarget ?? current.launchTarget,
+    protonVersion: payload.protonVersion ?? current.protonVersion,
+    protonCompatDataPath: payload.protonCompatDataPath ?? current.protonCompatDataPath,
+    launchEnvironment: payload.launchEnvironment ?? current.launchEnvironment,
     bannerPath: payload.bannerPath ?? current.bannerPath
   });
 
@@ -1512,6 +1602,10 @@ ipcMain.handle("game:get-icon", async (_event, gameId) => {
 
   const icon = await app.getFileIcon(iconPath, { size: "normal" });
   return icon.isEmpty() ? null : icon.toDataURL();
+});
+
+ipcMain.handle("proton:list-versions", async () => {
+  return listProtonVersions();
 });
 
 ipcMain.handle("game:restore-latest", async (_event, gameId) => {
@@ -1543,16 +1637,65 @@ ipcMain.handle("game:launch", async (_event, gameId) => {
       throw new Error("La ruta del ejecutable no existe.");
     }
 
-    const launchError = await shell.openPath(launch.target);
-    if (launchError) {
-      throw new Error(launchError);
+    const isExe = path.extname(launch.target).toLowerCase() === ".exe";
+
+    if (process.platform === "linux" && isExe) {
+      const wineBinary = await getWineBinary();
+      if (!wineBinary) {
+        throw new Error("No se encontro Wine instalado. Instala Wine para ejecutar este juego en Linux.");
+      }
+
+      await spawnDetached(wineBinary, [launch.target], {
+        cwd: game.installRoot || path.dirname(launch.target),
+        env: { ...process.env, WINEDEBUG: "-all" }
+      });
+    } else {
+      await spawnDetached(launch.target, [], {
+        cwd: game.installRoot || undefined
+      });
     }
+  } else if (launch.kind === "proton") {
+    if (!fs.existsSync(launch.target)) {
+      throw new Error("La ruta del ejecutable no existe.");
+    }
+
+    const steamPath = await getSteamPath();
+    if (!steamPath) {
+      throw new Error("No se encontro Steam instalado.");
+    }
+
+    const protonVersion = launch.protonVersion || "";
+    if (!protonVersion) {
+      throw new Error("No se ha seleccionado una version de Proton.");
+    }
+
+    const protonPath = await getProtonExecutablePath(protonVersion);
+
+    if (!protonPath || !fs.existsSync(protonPath)) {
+      throw new Error(`No se encontro Proton: ${protonVersion}`);
+    }
+
+    const compatDataPath = launch.protonCompatDataPath || path.join(steamPath, "steamapps", "compatdata", game.id);
+    await fs.promises.mkdir(compatDataPath, { recursive: true });
+    const launchEnvironment = parseLaunchEnvironment(launch.launchEnvironment);
+
+    await spawnDetached(protonPath, ["run", launch.target], {
+      cwd: game.installRoot || path.dirname(launch.target),
+      env: {
+        ...process.env,
+        STEAM_COMPAT_CLIENT_INSTALL_PATH: steamPath,
+        STEAM_COMPAT_CLIENT_INSTALL_SUPPORT_LEVEL: "tool",
+        STEAM_COMPAT_DATA_PATH: compatDataPath,
+        WINEDEBUG: "-all",
+        ...launchEnvironment
+      }
+    });
   } else if (launch.kind === "external") {
     await shell.openExternal(launch.target);
   } else {
     await execAsync(launch.target, {
       cwd: game.installRoot || undefined,
-      windowsHide: true
+      ...(process.platform === "win32" ? { windowsHide: true } : {})
     });
   }
 
@@ -1570,7 +1713,7 @@ ipcMain.handle("game:close", async (_event, gameId) => {
     throw new Error("Juego no encontrado.");
   }
 
-  await stopProcess(game.processName);
+  await stopProcess(game.processName, game.executablePath);
   emitInfo(`Juego cerrado: ${game.title}.`, game.id);
   syncService.schedulePostExitCapture(game.id);
   setTimeout(() => {
@@ -1625,7 +1768,7 @@ async function detectGitStatus() {
   try {
     const { stdout } = await execFileAsync("git", ["rev-parse", "--is-inside-work-tree"], {
       cwd: path.join(__dirname, ".."),
-      windowsHide: true
+      ...(process.platform === "win32" ? { windowsHide: true } : {})
     });
 
     return stdout.trim() === "true";

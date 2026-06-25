@@ -70,6 +70,52 @@ function parseLaunchEnvironment(value) {
   );
 }
 
+function serializeLaunchEnvironment(environment) {
+  return Object.entries(environment)
+    .filter(([key, value]) => key && value !== undefined && value !== null && String(value).trim() !== "")
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+}
+
+function mergeDllOverrides(currentValue, detectedOverrides) {
+  const overrides = new Map();
+  const addOverride = (entry) => {
+    const [name, mode] = String(entry || "").split("=");
+    if (!name || !mode) return;
+    overrides.set(name.trim().toLowerCase(), `${name.trim()}=${mode.trim()}`);
+  };
+
+  String(currentValue || "")
+    .split(";")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .forEach(addOverride);
+
+  detectedOverrides.forEach((entry) => {
+    const [name] = entry.split("=");
+    if (name && !overrides.has(name.trim().toLowerCase())) {
+      addOverride(entry);
+    }
+  });
+
+  return [...overrides.values()].join(";");
+}
+
+async function commandAvailable(commandName) {
+  try {
+    await execFileAsync(commandName, ["--version"], { timeout: 5000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function choosePreferredProtonVersion(versions = []) {
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  const sorted = [...versions].sort((left, right) => collator.compare(right, left));
+  return sorted.find((version) => /^GE-Proton/i.test(version)) || sorted[0] || "";
+}
+
 function loadEnvFiles() {
   const appDataEnvPath = path.join(
     process.env.APPDATA || process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
@@ -653,13 +699,21 @@ async function handleSnapshotCaptured(game, localSnapshot) {
   await persistState({ syncCloud: driveService.isAuthenticated() });
 }
 
-function buildGameRecord(payload) {
+async function buildGameRecord(payload) {
   const preparedPayload = prepareManualGamePayload(payload);
+  const gameId = preparedPayload.id || slugify(preparedPayload.title);
+  const automatedProtonOptions = await getAutomatedProtonOptions({
+    gameId,
+    executablePath: preparedPayload.executablePath,
+    installRoot: preparedPayload.installRoot,
+    launchEnvironment: preparedPayload.launchEnvironment
+  });
   const launchType = preparedPayload.launchType || (preparedPayload.executablePath ? "exe" : "exe");
   const launchTarget = preparedPayload.launchTarget || preparedPayload.executablePath || "";
+  const defaultedLaunchType = launchType === "exe" && automatedProtonOptions.launchType === "proton" ? "proton" : launchType;
 
   return normalizeGameRecord({
-    id: preparedPayload.id || slugify(preparedPayload.title),
+    id: gameId,
     title: preparedPayload.title,
     addedAt: new Date().toISOString(),
     maxBackups: preparedPayload.maxBackups ?? 3,
@@ -671,11 +725,11 @@ function buildGameRecord(payload) {
     platform: process.platform,
     detectionSource: preparedPayload.detectionSource || "manual",
     filePatterns: preparedPayload.filePatterns?.length ? preparedPayload.filePatterns : ["**/*"],
-    launchType,
-    launchTarget,
-    protonVersion: preparedPayload.protonVersion || "",
-    protonCompatDataPath: preparedPayload.protonCompatDataPath || "",
-    launchEnvironment: preparedPayload.launchEnvironment || "",
+    launchType: preparedPayload.launchType && preparedPayload.launchType !== "exe" ? preparedPayload.launchType : defaultedLaunchType,
+    launchTarget: preparedPayload.launchTarget || automatedProtonOptions.launchTarget || launchTarget,
+    protonVersion: preparedPayload.protonVersion || automatedProtonOptions.protonVersion || "",
+    protonCompatDataPath: preparedPayload.protonCompatDataPath || automatedProtonOptions.protonCompatDataPath || "",
+    launchEnvironment: automatedProtonOptions.launchEnvironment || preparedPayload.launchEnvironment || "",
     bannerPath: preparedPayload.bannerPath || "",
     totalPlaySeconds: 0,
     currentlyRunning: false,
@@ -810,7 +864,106 @@ function buildDefaultSavePathFromProcess(processName) {
   return path.join(dataHome, stem);
 }
 
-async function getDefaultLaunchForExecutable(executablePath) {
+const onlineFixDllOverrides = new Map([
+  ["onlinefix.dll", "OnlineFix=n"],
+  ["onlinefix64.dll", "OnlineFix64=n"],
+  ["steamoverlay.dll", "SteamOverlay=n"],
+  ["steamoverlay64.dll", "SteamOverlay64=n"],
+  ["steam_api.dll", "steam_api=n,b"],
+  ["steam_api64.dll", "steam_api64=n,b"],
+  ["winmm.dll", "winmm=n,b"],
+  ["winhttp.dll", "winhttp=n,b"],
+  ["dnet.dll", "dnet=n"]
+]);
+
+async function findGameCompatHints(rootDir) {
+  const hints = {
+    dllOverrides: [],
+    steamAppId: ""
+  };
+
+  if (!rootDir || !fs.existsSync(rootDir)) {
+    return hints;
+  }
+
+  const stack = [{ directoryPath: rootDir, depth: 0 }];
+  const maxDepth = 4;
+  const foundOverrides = new Set();
+
+  while (stack.length) {
+    const current = stack.shift();
+    if (!current) continue;
+
+    const entries = await fs.promises.readdir(current.directoryPath, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const fullPath = path.join(current.directoryPath, entry.name);
+      if (entry.isDirectory()) {
+        if (current.depth < maxDepth) {
+          stack.push({ directoryPath: fullPath, depth: current.depth + 1 });
+        }
+        continue;
+      }
+
+      const lowerName = entry.name.toLowerCase();
+      if (lowerName === "steam_appid.txt" && !hints.steamAppId) {
+        const content = await fs.promises.readFile(fullPath, "utf8").catch(() => "");
+        const appId = content.match(/\d+/)?.[0] || "";
+        if (appId) hints.steamAppId = appId;
+      }
+
+      const override = onlineFixDllOverrides.get(lowerName);
+      if (override) {
+        foundOverrides.add(override);
+      }
+    }
+  }
+
+  hints.dllOverrides = [...foundOverrides];
+  return hints;
+}
+
+async function getAutomatedProtonOptions({ gameId, executablePath, installRoot, launchEnvironment }) {
+  if (process.platform !== "linux" || path.extname(executablePath || "").toLowerCase() !== ".exe") {
+    return {};
+  }
+
+  const protonResult = await listProtonVersions();
+  const protonVersion = choosePreferredProtonVersion(protonResult.versions);
+  const steamPath = protonResult.steamPath || await getSteamPath();
+  const scanRoot = installRoot || path.dirname(executablePath);
+  const hints = await findGameCompatHints(scanRoot);
+  const environment = parseLaunchEnvironment(launchEnvironment);
+
+  if (steamPath && !environment.STEAM_COMPAT_CLIENT_INSTALL_PATH) {
+    environment.STEAM_COMPAT_CLIENT_INSTALL_PATH = steamPath;
+  }
+
+  if (!environment.STEAM_COMPAT_CLIENT_INSTALL_SUPPORT_LEVEL) {
+    environment.STEAM_COMPAT_CLIENT_INSTALL_SUPPORT_LEVEL = "tool";
+  }
+
+  if (hints.steamAppId && !environment.SteamAppId) {
+    environment.SteamAppId = hints.steamAppId;
+  }
+
+  if (hints.dllOverrides.length) {
+    environment.WINEDLLOVERRIDES = mergeDllOverrides(environment.WINEDLLOVERRIDES, hints.dllOverrides);
+  }
+
+  if (!environment.MANGOHUD && await commandAvailable("mangohud")) {
+    environment.MANGOHUD = "1";
+  }
+
+  return {
+    launchType: protonVersion ? "proton" : "exe",
+    launchTarget: executablePath,
+    protonVersion,
+    protonCompatDataPath: steamPath && gameId ? path.join(steamPath, "steamapps", "compatdata", gameId) : "",
+    launchEnvironment: serializeLaunchEnvironment(environment)
+  };
+}
+
+async function getDefaultLaunchForExecutable(executablePath, gameId = "", installRoot = "") {
   if (process.platform !== "linux" || path.extname(executablePath || "").toLowerCase() !== ".exe") {
     return {
       launchType: "exe",
@@ -819,14 +972,7 @@ async function getDefaultLaunchForExecutable(executablePath) {
     };
   }
 
-  const protonResult = await listProtonVersions();
-  const protonVersion = protonResult.versions[0] || "";
-
-  return {
-    launchType: protonVersion ? "proton" : "exe",
-    launchTarget: executablePath,
-    protonVersion
-  };
+  return getAutomatedProtonOptions({ gameId, executablePath, installRoot, launchEnvironment: "" });
 }
 
 async function autoAddCompletedTorrentToLibrary(download) {
@@ -852,7 +998,7 @@ async function autoAddCompletedTorrentToLibrary(download) {
     }
 
     const processName = path.basename(executablePath);
-    const game = buildGameRecord({
+    const game = await buildGameRecord({
       id: slugify(download.title),
       title: download.title,
       processName,
@@ -860,7 +1006,7 @@ async function autoAddCompletedTorrentToLibrary(download) {
       installRoot,
       savePath: buildDefaultSavePathFromProcess(processName),
       detectionSource: "manual",
-      ...(await getDefaultLaunchForExecutable(executablePath))
+      ...(await getDefaultLaunchForExecutable(executablePath, slugify(download.title), installRoot))
     });
 
     upsertGame(game);
@@ -1483,7 +1629,7 @@ ipcMain.handle("game:add-from-candidate", async (_event, candidateId) => {
     throw new Error("No se encontro el candidato seleccionado.");
   }
 
-  const game = buildGameRecord({
+  const game = await buildGameRecord({
     id: slugify(candidate.title),
     title: candidate.title,
     savePath: candidate.suggestedSavePath,
@@ -1492,7 +1638,7 @@ ipcMain.handle("game:add-from-candidate", async (_event, candidateId) => {
     installRoot: candidate.installRoot,
     filePatterns: candidate.filePatterns,
     detectionSource: candidate.detectionSource,
-    ...(await getDefaultLaunchForExecutable(candidate.executablePath))
+    ...(await getDefaultLaunchForExecutable(candidate.executablePath, slugify(candidate.title), candidate.installRoot))
   });
 
   upsertGame(game);
@@ -1501,7 +1647,7 @@ ipcMain.handle("game:add-from-candidate", async (_event, candidateId) => {
 });
 
 ipcMain.handle("game:create-manual", async (_event, payload) => {
-  const game = buildGameRecord({
+  const game = await buildGameRecord({
     id: payload.id || slugify(payload.title || crypto.randomUUID()),
     title: payload.title,
     savePath: payload.savePath,
@@ -1567,20 +1713,29 @@ ipcMain.handle("game:update", async (_event, payload) => {
   }
 
   const current = state.games[gameIndex];
-    const updated = normalizeGameRecord({
-      ...current,
-      title: payload.title ?? current.title,
-      maxBackups: payload.maxBackups ?? current.maxBackups,
-      savePath: payload.savePath ?? current.savePath,
+  const nextExecutablePath = payload.executablePath ?? current.executablePath;
+  const nextInstallRoot = payload.installRoot ?? current.installRoot;
+  const nextLaunchEnvironment = payload.launchEnvironment ?? current.launchEnvironment;
+  const automatedProtonOptions = await getAutomatedProtonOptions({
+    gameId: current.id,
+    executablePath: nextExecutablePath,
+    installRoot: nextInstallRoot,
+    launchEnvironment: nextLaunchEnvironment
+  });
+  const updated = normalizeGameRecord({
+    ...current,
+    title: payload.title ?? current.title,
+    maxBackups: payload.maxBackups ?? current.maxBackups,
+    savePath: payload.savePath ?? current.savePath,
     processName: payload.processName ?? current.processName,
-    executablePath: payload.executablePath ?? current.executablePath,
-    installRoot: payload.installRoot ?? current.installRoot,
+    executablePath: nextExecutablePath,
+    installRoot: nextInstallRoot,
     filePatterns: payload.filePatterns?.length ? payload.filePatterns : current.filePatterns,
-    launchType: payload.launchType ?? current.launchType,
-    launchTarget: payload.launchTarget ?? current.launchTarget,
-    protonVersion: payload.protonVersion ?? current.protonVersion,
-    protonCompatDataPath: payload.protonCompatDataPath ?? current.protonCompatDataPath,
-    launchEnvironment: payload.launchEnvironment ?? current.launchEnvironment,
+    launchType: payload.launchType || current.launchType || automatedProtonOptions.launchType,
+    launchTarget: payload.launchTarget || current.launchTarget || automatedProtonOptions.launchTarget,
+    protonVersion: payload.protonVersion || current.protonVersion || automatedProtonOptions.protonVersion,
+    protonCompatDataPath: payload.protonCompatDataPath || current.protonCompatDataPath || automatedProtonOptions.protonCompatDataPath,
+    launchEnvironment: automatedProtonOptions.launchEnvironment || nextLaunchEnvironment,
     bannerPath: payload.bannerPath ?? current.bannerPath
   });
 

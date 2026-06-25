@@ -116,6 +116,96 @@ function choosePreferredProtonVersion(versions = []) {
   return sorted.find((version) => /^GE-Proton/i.test(version)) || sorted[0] || "";
 }
 
+const platformProfileFields = [
+  "savePath",
+  "processName",
+  "executablePath",
+  "installRoot",
+  "filePatterns",
+  "launchType",
+  "launchTarget",
+  "protonVersion",
+  "protonCompatDataPath",
+  "launchEnvironment"
+];
+
+function getCurrentPlatformKey() {
+  return process.platform;
+}
+
+function normalizePlatformKey(value) {
+  if (value === "windows") return "win32";
+  if (["linux", "win32", "darwin"].includes(value)) return value;
+  return getCurrentPlatformKey();
+}
+
+function extractPlatformProfile(game = {}) {
+  return {
+    savePath: game.savePath || "",
+    processName: game.processName || "",
+    executablePath: game.executablePath || "",
+    installRoot: game.installRoot || "",
+    filePatterns: Array.isArray(game.filePatterns) && game.filePatterns.length ? game.filePatterns : ["**/*"],
+    launchType: game.launchType || (game.executablePath ? "exe" : "exe"),
+    launchTarget: game.launchTarget || game.executablePath || "",
+    protonVersion: game.protonVersion || "",
+    protonCompatDataPath: game.protonCompatDataPath || "",
+    launchEnvironment: game.launchEnvironment || ""
+  };
+}
+
+function normalizePlatformProfiles(game = {}) {
+  const profiles = {};
+  const sourceProfiles = game.platformProfiles && typeof game.platformProfiles === "object" ? game.platformProfiles : {};
+
+  for (const [platformKey, profile] of Object.entries(sourceProfiles)) {
+    if (!profile || typeof profile !== "object") continue;
+    profiles[normalizePlatformKey(platformKey)] = extractPlatformProfile(profile);
+  }
+
+  const hasLegacyProfile = platformProfileFields.some((field) => game[field] !== undefined && game[field] !== null && game[field] !== "");
+  if (hasLegacyProfile) {
+    profiles[normalizePlatformKey(game.platform)] = {
+      ...profiles[normalizePlatformKey(game.platform)],
+      ...extractPlatformProfile(game)
+    };
+  }
+
+  return profiles;
+}
+
+function withCurrentPlatformProfile(game = {}) {
+  const platformKey = getCurrentPlatformKey();
+  const platformProfiles = normalizePlatformProfiles(game);
+  const currentProfile = platformProfiles[platformKey] || extractPlatformProfile(game);
+  platformProfiles[platformKey] = currentProfile;
+
+  return {
+    ...game,
+    ...currentProfile,
+    platform: platformKey,
+    platformProfiles
+  };
+}
+
+function serializeGameForCatalog(game = {}) {
+  const normalized = normalizeGameRecord(game);
+  const catalogGame = {
+    ...normalized,
+    currentlyRunning: false,
+    sessionStartedAt: null,
+    processStartedAt: null,
+    trackedUntilAt: null,
+    latestLocalSave: null
+  };
+
+  for (const field of platformProfileFields) {
+    delete catalogGame[field];
+  }
+
+  return catalogGame;
+}
+
 function loadEnvFiles() {
   const appDataEnvPath = path.join(
     process.env.APPDATA || process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config"),
@@ -196,6 +286,7 @@ const runtime = {
 
 let state = {
   scanRoots: [],
+  platformScanRoots: {},
   discoveryCandidates: [],
   games: [],
   torrentReleaseSources: [],
@@ -468,34 +559,67 @@ async function persistState({ syncCloud = false } = {}) {
 }
 
 function serializeCatalog() {
+  const platformKey = getCurrentPlatformKey();
+  const platformScanRoots = {
+    ...(state.platformScanRoots && typeof state.platformScanRoots === "object" ? state.platformScanRoots : {}),
+    [platformKey]: state.scanRoots
+  };
+
   return {
     appName: env.APP_NAME,
     updatedAt: new Date().toISOString(),
     deviceLabel: env.DEVICE_LABEL,
     scanRoots: state.scanRoots,
-    games: state.games.map((game) => ({
-      ...game,
-      currentlyRunning: false,
-      sessionStartedAt: null,
-      processStartedAt: null,
-      trackedUntilAt: null,
-      latestLocalSave: null
-    }))
+    platformScanRoots,
+    games: state.games.map(serializeGameForCatalog)
   };
 }
 
 function mergeCloudCatalog(remoteCatalog) {
   const localSnapshotsByGame = new Map(state.games.map((game) => [game.id, game.latestLocalSave || null]));
+  const localGamesById = new Map(state.games.map((game) => [game.id, game]));
+  const platformKey = getCurrentPlatformKey();
+  const remotePlatformScanRoots = remoteCatalog?.platformScanRoots && typeof remoteCatalog.platformScanRoots === "object"
+    ? remoteCatalog.platformScanRoots
+    : {};
+  const remoteScanRoots = Array.isArray(remotePlatformScanRoots[platformKey])
+    ? remotePlatformScanRoots[platformKey]
+    : Array.isArray(remoteCatalog?.scanRoots)
+      ? remoteCatalog.scanRoots
+      : [];
+  const platformScanRoots = {
+    ...remotePlatformScanRoots,
+    ...(state.platformScanRoots && typeof state.platformScanRoots === "object" ? state.platformScanRoots : {}),
+    [platformKey]: [...new Set([...remoteScanRoots, ...state.scanRoots])]
+  };
+  const remoteGames = Array.isArray(remoteCatalog?.games) ? remoteCatalog.games : null;
+  const mergedGames = remoteGames
+    ? [
+        ...remoteGames.map((game) => {
+          const localGame = localGamesById.get(game.id) || {};
+          const remoteProfiles = normalizePlatformProfiles(game);
+          const localProfiles = normalizePlatformProfiles(localGame);
+          return normalizeGameRecord({
+            ...localGame,
+            ...game,
+            platformProfiles: {
+              ...remoteProfiles,
+              ...localProfiles
+            },
+            latestLocalSave: localSnapshotsByGame.get(game.id) || null
+          });
+        }),
+        ...state.games
+          .filter((game) => !remoteGames.some((remoteGame) => remoteGame.id === game.id))
+          .map(normalizeGameRecord)
+      ]
+    : state.games;
 
   state = {
     ...state,
-    scanRoots: Array.isArray(remoteCatalog?.scanRoots) ? remoteCatalog.scanRoots : state.scanRoots,
-    games: Array.isArray(remoteCatalog?.games)
-      ? remoteCatalog.games.map((game) => normalizeGameRecord({
-          ...game,
-          latestLocalSave: localSnapshotsByGame.get(game.id) || null
-        }))
-      : state.games
+    platformScanRoots,
+    scanRoots: platformScanRoots[platformKey],
+    games: mergedGames
   };
 }
 
@@ -712,7 +836,7 @@ async function buildGameRecord(payload) {
   const launchTarget = preparedPayload.launchTarget || preparedPayload.executablePath || "";
   const defaultedLaunchType = launchType === "exe" && automatedProtonOptions.launchType === "proton" ? "proton" : launchType;
 
-  return normalizeGameRecord({
+  return normalizeGameRecord(withCurrentPlatformProfile({
     id: gameId,
     title: preparedPayload.title,
     addedAt: new Date().toISOString(),
@@ -737,29 +861,30 @@ async function buildGameRecord(payload) {
     lastPlayedAt: null,
     latestLocalSave: null,
     latestRemoteSave: null
-  });
+  }));
 }
 
 function normalizeGameRecord(game) {
+  const profiledGame = withCurrentPlatformProfile(game);
   return {
-    ...game,
-    addedAt: game.addedAt || null,
-    maxBackups: Number.isInteger(game.maxBackups) ? Math.min(20, Math.max(1, game.maxBackups)) : 3,
-    executablePath: game.executablePath || "",
-    installRoot: game.installRoot || "",
-    launchType: game.launchType || (game.executablePath ? "exe" : "exe"),
-    launchTarget: game.launchTarget || game.executablePath || "",
-    protonVersion: game.protonVersion || "",
-    protonCompatDataPath: game.protonCompatDataPath || "",
-    launchEnvironment: game.launchEnvironment || "",
-    bannerPath: game.bannerPath || "",
-    totalPlaySeconds: Number(game.totalPlaySeconds || 0),
-    currentlyRunning: Boolean(game.currentlyRunning),
-    sessionStartedAt: game.sessionStartedAt || null,
-    lastPlayedAt: game.lastPlayedAt || null,
-    processStartedAt: game.processStartedAt || null,
-    trackedUntilAt: game.trackedUntilAt || null,
-    filePatterns: Array.isArray(game.filePatterns) && game.filePatterns.length ? game.filePatterns : ["**/*"]
+    ...profiledGame,
+    addedAt: profiledGame.addedAt || null,
+    maxBackups: Number.isInteger(profiledGame.maxBackups) ? Math.min(20, Math.max(1, profiledGame.maxBackups)) : 3,
+    executablePath: profiledGame.executablePath || "",
+    installRoot: profiledGame.installRoot || "",
+    launchType: profiledGame.launchType || (profiledGame.executablePath ? "exe" : "exe"),
+    launchTarget: profiledGame.launchTarget || profiledGame.executablePath || "",
+    protonVersion: profiledGame.protonVersion || "",
+    protonCompatDataPath: profiledGame.protonCompatDataPath || "",
+    launchEnvironment: profiledGame.launchEnvironment || "",
+    bannerPath: profiledGame.bannerPath || "",
+    totalPlaySeconds: Number(profiledGame.totalPlaySeconds || 0),
+    currentlyRunning: Boolean(profiledGame.currentlyRunning),
+    sessionStartedAt: profiledGame.sessionStartedAt || null,
+    lastPlayedAt: profiledGame.lastPlayedAt || null,
+    processStartedAt: profiledGame.processStartedAt || null,
+    trackedUntilAt: profiledGame.trackedUntilAt || null,
+    filePatterns: Array.isArray(profiledGame.filePatterns) && profiledGame.filePatterns.length ? profiledGame.filePatterns : ["**/*"]
   };
 }
 
@@ -1518,12 +1643,20 @@ ipcMain.handle("settings:add-scan-root", async (_event, directoryPath) => {
   }
 
   state.scanRoots = [...new Set([...state.scanRoots, directoryPath])];
+  state.platformScanRoots = {
+    ...(state.platformScanRoots || {}),
+    [getCurrentPlatformKey()]: state.scanRoots
+  };
   await persistState({ syncCloud: true });
   return state.scanRoots;
 });
 
 ipcMain.handle("settings:remove-scan-root", async (_event, directoryPath) => {
   state.scanRoots = state.scanRoots.filter((item) => item !== directoryPath);
+  state.platformScanRoots = {
+    ...(state.platformScanRoots || {}),
+    [getCurrentPlatformKey()]: state.scanRoots
+  };
   await persistState({ syncCloud: true });
   return state.scanRoots;
 });

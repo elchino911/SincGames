@@ -3,6 +3,7 @@ import path from "node:path";
 
 const defaultState = {
   scanRoots: [],
+  platformScanRoots: {},
   discoveryCandidates: [],
   games: [],
   torrentReleaseSources: [],
@@ -49,6 +50,7 @@ export class StateStore {
         ...defaultState,
         ...parsed,
         scanRoots: Array.isArray(parsed.scanRoots) ? parsed.scanRoots : [],
+        platformScanRoots: parsed.platformScanRoots && typeof parsed.platformScanRoots === "object" ? parsed.platformScanRoots : {},
         discoveryCandidates: Array.isArray(parsed.discoveryCandidates) ? parsed.discoveryCandidates : [],
         games: Array.isArray(parsed.games) ? parsed.games : [],
         torrentReleaseSources: Array.isArray(parsed.torrentReleaseSources) ? parsed.torrentReleaseSources : [],

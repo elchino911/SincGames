@@ -6,8 +6,26 @@
  *   savePath: string;
  *   processName: string;
  *   executablePath?: string;
+ *   installRoot?: string;
+ *   launchType?: "exe" | "steam" | "uri" | "command" | "proton";
+ *   launchTarget?: string;
+ *   protonVersion?: string;
+ *   protonCompatDataPath?: string;
+ *   launchEnvironment?: string;
  *   installed: boolean;
  *   platform: NodeJS.Platform | "windows";
+ *   platformProfiles?: Record<string, {
+ *     savePath?: string;
+ *     processName?: string;
+ *     executablePath?: string;
+ *     installRoot?: string;
+ *     filePatterns?: string[];
+ *     launchType?: "exe" | "steam" | "uri" | "command" | "proton";
+ *     launchTarget?: string;
+ *     protonVersion?: string;
+ *     protonCompatDataPath?: string;
+ *     launchEnvironment?: string;
+ *   }>;
  *   filePatterns: string[];
  *   lastLocalScanAt?: string;
  *   latestLocalSave?: SaveSnapshot | null;

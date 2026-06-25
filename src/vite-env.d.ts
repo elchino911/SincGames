@@ -67,6 +67,19 @@ export interface LocalSnapshot {
   sizeBytes: number;
 }
 
+export interface GamePlatformProfile {
+  savePath?: string;
+  processName?: string;
+  executablePath?: string;
+  installRoot?: string;
+  filePatterns?: string[];
+  launchType?: LaunchType;
+  launchTarget?: string;
+  protonVersion?: string;
+  protonCompatDataPath?: string;
+  launchEnvironment?: string;
+}
+
 export interface GameRecord {
   id: string;
   title: string;
@@ -91,6 +104,7 @@ export interface GameRecord {
   trackedUntilAt?: string | null;
   installed: boolean;
   platform: NodeJS.Platform | "windows";
+  platformProfiles?: Partial<Record<NodeJS.Platform | "windows", GamePlatformProfile>>;
   filePatterns: string[];
   latestLocalSave: LocalSnapshot | null;
   latestRemoteSave: RemoteBackup | null;

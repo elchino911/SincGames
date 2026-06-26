@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld("sincgames", {
   setOfflineBackupDir: (directoryPath) => ipcRenderer.invoke("settings:set-offline-backup-dir", directoryPath),
   saveGoogleOAuth: (payload) => ipcRenderer.invoke("settings:save-google-oauth", payload),
   scanForGames: () => ipcRenderer.invoke("discovery:scan"),
+  addExecutableToLibrary: (executablePath) => ipcRenderer.invoke("discovery:add-executable", executablePath),
   addGameFromCandidate: (candidateId) => ipcRenderer.invoke("game:add-from-candidate", candidateId),
   createManualGame: (payload) => ipcRenderer.invoke("game:create-manual", payload),
   updateGame: (payload) => ipcRenderer.invoke("game:update", payload),

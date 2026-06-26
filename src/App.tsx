@@ -904,7 +904,33 @@ function App() {
     if (!bridge) return;
     setBusyAction(`import:${candidate.id}`);
     try {
-      await bridge.addGameFromCandidate(candidate.id);
+      const game = await bridge.addGameFromCandidate(candidate.id);
+      setSelectedGameId(game.id);
+      setTopView("library");
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const addExecutableDirectly = async () => {
+    if (!bridge) return;
+    const executablePath = await bridge.pickExecutable();
+    if (!executablePath) return;
+
+    setBusyAction("quick-exe");
+    try {
+      const game = await bridge.addExecutableToLibrary(executablePath);
+      setSelectedGameId(game.id);
+      setTopView("library");
+    } catch (error) {
+      setActivity((current) => [
+        {
+          type: "warning",
+          gameId: null,
+          message: error instanceof Error ? error.message : "No se pudo agregar el ejecutable."
+        },
+        ...current
+      ]);
     } finally {
       setBusyAction(null);
     }
@@ -1594,7 +1620,7 @@ function App() {
           <label>
             <span>Ruta de save</span>
             <div className="field-with-action">
-              <input value={editForm.savePath} onChange={(e) => updateEdit("savePath", e.target.value)} required />
+              <input value={editForm.savePath} onChange={(e) => updateEdit("savePath", e.target.value)} />
               <button className="mini-button" type="button" onClick={() => void pickDirectoryInto("savePath", "edit")}>Elegir</button>
             </div>
           </label>
@@ -1673,9 +1699,14 @@ function App() {
               <span className="section-kicker">Descubrimiento</span>
               <h2>Escaneo de roots y alta manual</h2>
             </div>
-            <button className="secondary-button" onClick={scanForGames} disabled={busyAction === "scan" || isDiscoveryScanning}>
-              {isDiscoveryScanning ? "Escaneando..." : "Escanear roots"}
-            </button>
+            <div className="steam-actions-row">
+              <button className="secondary-button" onClick={addExecutableDirectly} disabled={busyAction === "quick-exe"}>
+                Agregar .exe
+              </button>
+              <button className="secondary-button" onClick={scanForGames} disabled={busyAction === "scan" || isDiscoveryScanning}>
+                {isDiscoveryScanning ? "Escaneando..." : "Escanear roots"}
+              </button>
+            </div>
           </section>
 
           <div className="steam-content-grid discovery-layout">
@@ -1741,7 +1772,7 @@ function App() {
                 <label>
                   <span>Ruta de save</span>
                   <div className="field-with-action">
-                    <input value={manualForm.savePath} onChange={(e) => updateManual("savePath", e.target.value)} required />
+                    <input value={manualForm.savePath} onChange={(e) => updateManual("savePath", e.target.value)} />
                     <button className="mini-button" type="button" onClick={() => void pickDirectoryInto("savePath", "manual")}>Elegir</button>
                   </div>
                 </label>

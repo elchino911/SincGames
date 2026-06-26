@@ -24,6 +24,7 @@ declare global {
       setOfflineBackupDir: (directoryPath: string) => Promise<string>;
       saveGoogleOAuth: (payload: GoogleOAuthPayload) => Promise<{ ok: boolean; envFilePath: string }>;
       scanForGames: () => Promise<{ candidates: DiscoveryCandidate[]; manifestInfo: ManifestInfo | null }>;
+      addExecutableToLibrary: (executablePath: string) => Promise<GameRecord>;
       addGameFromCandidate: (candidateId: string) => Promise<GameRecord>;
       createManualGame: (payload: ManualGamePayload) => Promise<GameRecord>;
       updateGame: (payload: GameUpdatePayload) => Promise<GameRecord>;
@@ -118,7 +119,7 @@ export interface DiscoveryCandidate {
   installRoot: string;
   suggestedSavePath: string;
   filePatterns: string[];
-  detectionSource: "manifest" | "scan";
+  detectionSource: "manifest" | "scan" | "manual";
   confidence: number;
 }
 

@@ -18,6 +18,7 @@ import { TorrentService } from "./services/torrent-service.mjs";
 import { AppLogger } from "./services/app-logger.mjs";
 import { ArchiveExtractor } from "./services/archive-extractor.mjs";
 import { completeMutationWithRefresh, prepareManualGamePayload, resolveGameRemoval } from "./services/game-library.mjs";
+import { GameManifestService } from "./services/game-manifest.mjs";
 
 const { autoUpdater } = electronUpdater;
 
@@ -25,6 +26,16 @@ const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const RUNTIME_INSTALL_MARKER = ".sincgames-runtime-installs.json";
+const RUNTIME_SCAN_MAX_DEPTH = 7;
+const RUNTIME_INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
+
+const vcRuntimeInstallerPatterns = [
+  /(^|[^a-z])vc[\s._-]*redist[\s._-]*(x64|x86|amd64)?\.exe$/i,
+  /(^|[^a-z])vcredist[\s._-]*(x64|x86|amd64)?\.exe$/i,
+  /vcredist.*(2005|2008|2010|2012|2013|2015|2017|2019|2022).*\.(exe)$/i,
+  /vc.*redist.*(2005|2008|2010|2012|2013|2015|2017|2019|2022).*\.(exe)$/i
+];
 
 function spawnDetached(command, args = [], options = {}) {
   return new Promise((resolve, reject) => {
@@ -68,6 +79,196 @@ function parseLaunchEnvironment(value) {
       })
       .filter(Boolean)
   );
+}
+
+function getRuntimeInstallerArgs(installerPath) {
+  const lowerName = path.basename(installerPath).toLowerCase();
+  if (/(2005|2008|2010)/.test(lowerName)) {
+    return ["/q", "/norestart"];
+  }
+
+  return ["/install", "/quiet", "/norestart"];
+}
+
+function inferRuntimeArchitecture(installerPath) {
+  const lowerName = path.basename(installerPath).toLowerCase();
+  if (/(x64|amd64|64-bit|64bit)/.test(lowerName)) {
+    return "x64";
+  }
+  if (/(x86|32-bit|32bit)/.test(lowerName)) {
+    return "x86";
+  }
+  return "unknown";
+}
+
+function inferRuntimeVersion(installerPath) {
+  const match = path.basename(installerPath).match(/20(05|08|10|12|13|15|17|19|22)/);
+  if (match) {
+    return `20${match[1]}`;
+  }
+  return "2015-2022";
+}
+
+function looksLikeVcRuntimeInstaller(filePath) {
+  const baseName = path.basename(filePath);
+  if (!baseName.toLowerCase().endsWith(".exe")) {
+    return false;
+  }
+
+  const lowerName = baseName.toLowerCase();
+  const lowerPath = filePath.toLowerCase();
+  const hasRuntimeName = /vc[\s._-]*redist|vcredist|visual.*c/.test(lowerName);
+  if (!hasRuntimeName && /(unins|uninstall|setup|launcher|game|crash|benchmark)/.test(lowerName)) {
+    return false;
+  }
+
+  return vcRuntimeInstallerPatterns.some((pattern) => pattern.test(baseName)) || lowerPath.includes("vcredist");
+}
+
+async function walkForRuntimeInstallers(currentDir, depth = 0, maxDepth = RUNTIME_SCAN_MAX_DEPTH) {
+  if (!currentDir || depth > maxDepth) {
+    return [];
+  }
+
+  let entries = [];
+  try {
+    entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const installers = [];
+  for (const entry of entries) {
+    const entryPath = path.join(currentDir, entry.name);
+
+    if (entry.isDirectory()) {
+      if (["node_modules", ".git", "saved", "savegames"].includes(entry.name.toLowerCase())) {
+        continue;
+      }
+      installers.push(...(await walkForRuntimeInstallers(entryPath, depth + 1, maxDepth)));
+      continue;
+    }
+
+    if (entry.isFile() && looksLikeVcRuntimeInstaller(entryPath)) {
+      installers.push(entryPath);
+    }
+  }
+
+  return installers;
+}
+
+async function findVcRuntimeInstallers(installRoot) {
+  const installers = [...new Set(await walkForRuntimeInstallers(installRoot))];
+  const details = [];
+
+  for (const installerPath of installers) {
+    try {
+      const stats = await fs.promises.stat(installerPath);
+      details.push({
+        kind: "vcredist",
+        path: installerPath,
+        architecture: inferRuntimeArchitecture(installerPath),
+        version: inferRuntimeVersion(installerPath),
+        sizeBytes: stats.size,
+        modifiedMs: Math.trunc(stats.mtimeMs),
+        args: getRuntimeInstallerArgs(installerPath)
+      });
+    } catch {
+      // Ignora instaladores que desaparecieron durante el escaneo.
+    }
+  }
+
+  return details.sort((left, right) => {
+    const leftArchScore = left.architecture === "x64" ? 0 : left.architecture === "x86" ? 1 : 2;
+    const rightArchScore = right.architecture === "x64" ? 0 : right.architecture === "x86" ? 1 : 2;
+    return leftArchScore - rightArchScore || left.path.localeCompare(right.path);
+  });
+}
+
+function getRuntimeInstallId(runtime) {
+  return crypto
+    .createHash("sha256")
+    .update([runtime.kind, runtime.path, runtime.sizeBytes, runtime.modifiedMs].join("|"))
+    .digest("hex");
+}
+
+async function loadRuntimeInstallMarker(compatDataPath) {
+  const markerPath = path.join(compatDataPath, RUNTIME_INSTALL_MARKER);
+  try {
+    const parsed = JSON.parse(await fs.promises.readFile(markerPath, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : { installed: {} };
+  } catch {
+    return { installed: {} };
+  }
+}
+
+async function saveRuntimeInstallMarker(compatDataPath, marker) {
+  const markerPath = path.join(compatDataPath, RUNTIME_INSTALL_MARKER);
+  await fs.promises.writeFile(markerPath, `${JSON.stringify(marker, null, 2)}\n`, "utf8");
+}
+
+async function installProtonRuntimeDependency({ runtime, protonPath, compatDataPath, steamPath }) {
+  await fs.promises.mkdir(compatDataPath, { recursive: true });
+  await execFileAsync(protonPath, ["run", runtime.path, ...runtime.args], {
+    cwd: path.dirname(runtime.path),
+    timeout: RUNTIME_INSTALL_TIMEOUT_MS,
+    maxBuffer: 1024 * 1024,
+    env: {
+      ...process.env,
+      STEAM_COMPAT_CLIENT_INSTALL_PATH: steamPath,
+      STEAM_COMPAT_CLIENT_INSTALL_SUPPORT_LEVEL: "tool",
+      STEAM_COMPAT_DATA_PATH: compatDataPath,
+      WINEDEBUG: "-all",
+      MANGOHUD: "0"
+    }
+  });
+}
+
+async function ensureProtonRuntimeDependencies({ game, protonPath, compatDataPath, steamPath, launchEnvironment }) {
+  if (launchEnvironment.SINCGAMES_SKIP_RUNTIME_INSTALL === "1") {
+    return;
+  }
+
+  const installRoot = game.installRoot || (game.executablePath ? path.dirname(game.executablePath) : "");
+  if (!installRoot || !fs.existsSync(installRoot)) {
+    return;
+  }
+
+  const runtimes = await findVcRuntimeInstallers(installRoot);
+  if (!runtimes.length) {
+    return;
+  }
+
+  const marker = await loadRuntimeInstallMarker(compatDataPath);
+  marker.installed = marker.installed && typeof marker.installed === "object" ? marker.installed : {};
+
+  for (const runtime of runtimes) {
+    const installId = getRuntimeInstallId(runtime);
+    if (marker.installed[installId]?.ok) {
+      continue;
+    }
+
+    emitInfo(
+      `Instalando runtime ${runtime.version} ${runtime.architecture} para ${game.title}.`,
+      game.id
+    );
+
+    await installProtonRuntimeDependency({ runtime, protonPath, compatDataPath, steamPath });
+    marker.installed[installId] = {
+      ok: true,
+      kind: runtime.kind,
+      path: runtime.path,
+      version: runtime.version,
+      architecture: runtime.architecture,
+      installedAt: new Date().toISOString()
+    };
+    await saveRuntimeInstallMarker(compatDataPath, marker);
+
+    emitInfo(
+      `Runtime ${runtime.version} ${runtime.architecture} instalado para ${game.title}.`,
+      game.id
+    );
+  }
 }
 
 function serializeLaunchEnvironment(environment) {
@@ -1422,6 +1623,46 @@ function resolveLaunchConfiguration(game) {
   };
 }
 
+function humanizeExecutableName(filePath) {
+  return path
+    .basename(filePath, path.extname(filePath))
+    .replace(/[-_]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function buildCandidateFromExecutable(executablePath) {
+  if (!executablePath || typeof executablePath !== "string") {
+    throw new Error("Selecciona un ejecutable valido.");
+  }
+
+  if (!fs.existsSync(executablePath)) {
+    throw new Error("La ruta del ejecutable no existe.");
+  }
+
+  const installRoot = path.dirname(executablePath);
+  const processName = path.basename(executablePath);
+  const manifestService = new GameManifestService({ env });
+  const manifestMatch = await manifestService.matchExecutable({
+    exePath: executablePath,
+    installRoot,
+    scanRoot: installRoot
+  });
+
+  return {
+    id: crypto.randomUUID(),
+    title: manifestMatch?.title || humanizeExecutableName(executablePath),
+    executablePath,
+    processName,
+    installRoot,
+    suggestedSavePath: manifestMatch?.savePath || "",
+    filePatterns: manifestMatch?.filePatterns?.length ? manifestMatch.filePatterns : ["**/*"],
+    detectionSource: manifestMatch ? "manifest" : "manual",
+    confidence: manifestMatch?.confidence || 0
+  };
+}
+
 function normalizeTorrentReleasePayload(payload) {
   if (!payload || typeof payload !== "object") {
     throw new Error("La respuesta no contiene un objeto JSON valido.");
@@ -1779,6 +2020,32 @@ ipcMain.handle("game:add-from-candidate", async (_event, candidateId) => {
   return game;
 });
 
+ipcMain.handle("discovery:add-executable", async (_event, executablePath) => {
+  const candidate = await buildCandidateFromExecutable(executablePath);
+  state.discoveryCandidates = [
+    candidate,
+    ...state.discoveryCandidates.filter((item) => item.executablePath !== candidate.executablePath)
+  ];
+
+  const gameId = slugify(candidate.title) || crypto.randomUUID();
+  const game = await buildGameRecord({
+    id: gameId,
+    title: candidate.title,
+    savePath: candidate.suggestedSavePath,
+    processName: candidate.processName,
+    executablePath: candidate.executablePath,
+    installRoot: candidate.installRoot,
+    filePatterns: candidate.filePatterns,
+    detectionSource: candidate.detectionSource,
+    ...(await getDefaultLaunchForExecutable(candidate.executablePath, gameId, candidate.installRoot))
+  });
+
+  upsertGame(game);
+  await persistState({ syncCloud: true });
+  emitInfo(`Juego agregado desde ejecutable: ${game.title}.`, game.id);
+  return game;
+});
+
 ipcMain.handle("game:create-manual", async (_event, payload) => {
   const game = await buildGameRecord({
     id: payload.id || slugify(payload.title || crypto.randomUUID()),
@@ -1966,6 +2233,14 @@ ipcMain.handle("game:launch", async (_event, gameId) => {
     const compatDataPath = launch.protonCompatDataPath || path.join(steamPath, "steamapps", "compatdata", game.id);
     await fs.promises.mkdir(compatDataPath, { recursive: true });
     const launchEnvironment = parseLaunchEnvironment(launch.launchEnvironment);
+
+    await ensureProtonRuntimeDependencies({
+      game,
+      protonPath,
+      compatDataPath,
+      steamPath,
+      launchEnvironment
+    });
 
     await spawnDetached(protonPath, ["run", launch.target], {
       cwd: game.installRoot || path.dirname(launch.target),

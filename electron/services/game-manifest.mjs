@@ -13,23 +13,33 @@ export class GameManifestService {
       return this.cache;
     }
 
-    const response = await fetch(this.env.GAME_MANIFEST_URL);
-    if (!response.ok) {
-      throw new Error(`No se pudo descargar el manifest externo: ${response.status}`);
+    try {
+      const response = await fetch(this.env.GAME_MANIFEST_URL);
+      if (!response.ok) {
+        throw new Error(`No se pudo descargar el manifest externo: ${response.status}`);
+      }
+
+      const manifestText = await response.text();
+      const parsed = parse(manifestText);
+      const entries = Object.entries(parsed || {}).map(([title, config]) => ({
+        title,
+        config
+      }));
+
+      this.cache = {
+        source: this.env.GAME_MANIFEST_URL,
+        loadedAt: new Date().toISOString(),
+        entries,
+        error: null
+      };
+    } catch (error) {
+      this.cache = {
+        source: this.env.GAME_MANIFEST_URL,
+        loadedAt: new Date().toISOString(),
+        entries: [],
+        error: error instanceof Error ? error.message : "No se pudo descargar el manifest externo."
+      };
     }
-
-    const manifestText = await response.text();
-    const parsed = parse(manifestText);
-    const entries = Object.entries(parsed || {}).map(([title, config]) => ({
-      title,
-      config
-    }));
-
-    this.cache = {
-      source: this.env.GAME_MANIFEST_URL,
-      loadedAt: new Date().toISOString(),
-      entries
-    };
 
     return this.cache;
   }
@@ -39,12 +49,17 @@ export class GameManifestService {
     return {
       source: manifest.source,
       loadedAt: manifest.loadedAt,
-      totalGames: manifest.entries.length
+      totalGames: manifest.entries.length,
+      error: manifest.error || null
     };
   }
 
   async matchExecutable({ exePath, installRoot, scanRoot }) {
     const manifest = await this.loadManifest();
+    if (!manifest.entries.length) {
+      return null;
+    }
+
     const stem = path.basename(exePath, path.extname(exePath));
     const normalizedStem = normalize(stem);
     const normalizedInstallRoot = normalize(path.basename(installRoot));

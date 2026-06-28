@@ -29,6 +29,8 @@ const __dirname = path.dirname(__filename);
 const RUNTIME_INSTALL_MARKER = ".sincgames-runtime-installs.json";
 const RUNTIME_SCAN_MAX_DEPTH = 7;
 const RUNTIME_INSTALL_TIMEOUT_MS = 10 * 60 * 1000;
+const QUICK_MANIFEST_MATCH_TIMEOUT_MS = 1200;
+const COMPAT_HINT_SCAN_MAX_ENTRIES = 1500;
 
 const vcRuntimeInstallerPatterns = [
   /(^|[^a-z])vc[\s._-]*redist[\s._-]*(x64|x86|amd64)?\.exe$/i,
@@ -36,6 +38,16 @@ const vcRuntimeInstallerPatterns = [
   /vcredist.*(2005|2008|2010|2012|2013|2015|2017|2019|2022).*\.(exe)$/i,
   /vc.*redist.*(2005|2008|2010|2012|2013|2015|2017|2019|2022).*\.(exe)$/i
 ];
+
+function withTimeout(promise, timeoutMs, fallbackValue) {
+  let timeoutId;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timeoutId)),
+    new Promise((resolve) => {
+      timeoutId = setTimeout(() => resolve(fallbackValue), timeoutMs);
+    })
+  ]);
+}
 
 function spawnDetached(command, args = [], options = {}) {
   return new Promise((resolve, reject) => {
@@ -518,6 +530,7 @@ const stateStore = new StateStore({ app, env });
 const logger = new AppLogger({ app, env });
 const archiveExtractor = new ArchiveExtractor();
 const driveService = new GoogleDriveService(env);
+const manifestService = new GameManifestService({ env });
 const restoreService = new RestoreService({
   stateStore,
   driveService,
@@ -1215,13 +1228,19 @@ async function findGameCompatHints(rootDir) {
   const stack = [{ directoryPath: rootDir, depth: 0 }];
   const maxDepth = 4;
   const foundOverrides = new Set();
+  let visitedEntries = 0;
 
-  while (stack.length) {
+  while (stack.length && visitedEntries < COMPAT_HINT_SCAN_MAX_ENTRIES) {
     const current = stack.shift();
     if (!current) continue;
 
     const entries = await fs.promises.readdir(current.directoryPath, { withFileTypes: true }).catch(() => []);
     for (const entry of entries) {
+      visitedEntries += 1;
+      if (visitedEntries > COMPAT_HINT_SCAN_MAX_ENTRIES) {
+        break;
+      }
+
       const fullPath = path.join(current.directoryPath, entry.name);
       if (entry.isDirectory()) {
         if (current.depth < maxDepth) {
@@ -1643,12 +1662,15 @@ async function buildCandidateFromExecutable(executablePath) {
 
   const installRoot = path.dirname(executablePath);
   const processName = path.basename(executablePath);
-  const manifestService = new GameManifestService({ env });
-  const manifestMatch = await manifestService.matchExecutable({
-    exePath: executablePath,
-    installRoot,
-    scanRoot: installRoot
-  });
+  const manifestMatch = await withTimeout(
+    manifestService.matchExecutable({
+      exePath: executablePath,
+      installRoot,
+      scanRoot: installRoot
+    }).catch(() => null),
+    QUICK_MANIFEST_MATCH_TIMEOUT_MS,
+    null
+  );
 
   return {
     id: crypto.randomUUID(),
@@ -2021,6 +2043,7 @@ ipcMain.handle("game:add-from-candidate", async (_event, candidateId) => {
 });
 
 ipcMain.handle("discovery:add-executable", async (_event, executablePath) => {
+  emitInfo(`Agregando ejecutable a la biblioteca: ${executablePath}.`);
   const candidate = await buildCandidateFromExecutable(executablePath);
   state.discoveryCandidates = [
     candidate,
@@ -2028,6 +2051,7 @@ ipcMain.handle("discovery:add-executable", async (_event, executablePath) => {
   ];
 
   const gameId = slugify(candidate.title) || crypto.randomUUID();
+  emitInfo(`Configurando lanzamiento para ${candidate.title}.`);
   const game = await buildGameRecord({
     id: gameId,
     title: candidate.title,

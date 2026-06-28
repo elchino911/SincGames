@@ -370,6 +370,7 @@ function App() {
   const [oauthHelpImageFailed, setOauthHelpImageFailed] = useState<Record<number, boolean>>({});
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatusPayload | null>(null);
+  const [quickAddStatus, setQuickAddStatus] = useState<{ phase: string; detail: string } | null>(null);
   const [torrentReleaseUrl, setTorrentReleaseUrl] = useState("");
   const [torrentReleasePassword, setTorrentReleasePassword] = useState("");
   const [torrentDefaultOutputDir, setTorrentDefaultOutputDir] = useState("");
@@ -918,8 +919,20 @@ function App() {
     if (!executablePath) return;
 
     setBusyAction("quick-exe");
+    setQuickAddStatus({
+      phase: "Preparando alta",
+      detail: executablePath
+    });
     try {
+      setQuickAddStatus({
+        phase: "Detectando juego y compatibilidad",
+        detail: executablePath
+      });
       const game = await bridge.addExecutableToLibrary(executablePath);
+      setQuickAddStatus({
+        phase: "Guardando en biblioteca",
+        detail: game.title
+      });
       setSelectedGameId(game.id);
       setTopView("library");
     } catch (error) {
@@ -932,6 +945,7 @@ function App() {
         ...current
       ]);
     } finally {
+      setQuickAddStatus(null);
       setBusyAction(null);
     }
   };
@@ -1700,8 +1714,8 @@ function App() {
               <h2>Escaneo de roots y alta manual</h2>
             </div>
             <div className="steam-actions-row">
-              <button className="secondary-button" onClick={addExecutableDirectly} disabled={busyAction === "quick-exe"}>
-                Agregar .exe
+              <button className="secondary-button" onClick={addExecutableDirectly} disabled={busyAction === "quick-exe" || isDiscoveryScanning}>
+                {busyAction === "quick-exe" ? "Agregando..." : "Agregar .exe"}
               </button>
               <button className="secondary-button" onClick={scanForGames} disabled={busyAction === "scan" || isDiscoveryScanning}>
                 {isDiscoveryScanning ? "Escaneando..." : "Escanear roots"}
@@ -2532,6 +2546,23 @@ function App() {
               <div className="scan-progress-line" title={discoveryLiveLine}>
                 <strong>Directorio actual</strong>
                 <span>{discoveryLiveLine}</span>
+              </div>
+            </div>
+          </article>
+        </section>
+      ) : null}
+
+      {quickAddStatus ? (
+        <section className="scan-progress-overlay" aria-live="polite" aria-busy="true">
+          <article className="scan-progress-card">
+            <div className="scan-progress-spinner" aria-hidden="true" />
+            <div className="scan-progress-copy">
+              <span className="section-kicker">Alta rapida</span>
+              <h3>Agregando ejecutable a la biblioteca</h3>
+              <p className="muted-copy">{quickAddStatus.phase}</p>
+              <div className="scan-progress-line" title={quickAddStatus.detail}>
+                <strong>Ejecutable</strong>
+                <span>{quickAddStatus.detail}</span>
               </div>
             </div>
           </article>

@@ -1267,7 +1267,13 @@ async function findGameCompatHints(rootDir) {
   return hints;
 }
 
-async function getAutomatedProtonOptions({ gameId, executablePath, installRoot, launchEnvironment }) {
+async function getAutomatedProtonOptions({
+  gameId,
+  executablePath,
+  installRoot,
+  launchEnvironment,
+  autoEnableMangoHud = true
+}) {
   if (process.platform !== "linux" || path.extname(executablePath || "").toLowerCase() !== ".exe") {
     return {};
   }
@@ -1295,7 +1301,7 @@ async function getAutomatedProtonOptions({ gameId, executablePath, installRoot, 
     environment.WINEDLLOVERRIDES = mergeDllOverrides(environment.WINEDLLOVERRIDES, hints.dllOverrides);
   }
 
-  if (!environment.MANGOHUD && await commandAvailable("mangohud")) {
+  if (autoEnableMangoHud && !environment.MANGOHUD && await commandAvailable("mangohud")) {
     environment.MANGOHUD = "1";
   }
 
@@ -2144,7 +2150,8 @@ ipcMain.handle("game:update", async (_event, payload) => {
     gameId: current.id,
     executablePath: nextExecutablePath,
     installRoot: nextInstallRoot,
-    launchEnvironment: nextLaunchEnvironment
+    launchEnvironment: nextLaunchEnvironment,
+    autoEnableMangoHud: false
   });
   const updated = normalizeGameRecord({
     ...current,

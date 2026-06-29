@@ -44,15 +44,42 @@ async function readLinuxProcesses() {
   }
 }
 
+function normalizeProcessText(value) {
+  return String(value || "").replace(/\\/g, "/").toLowerCase();
+}
+
+function linuxCommandMatchesName(command, name) {
+  if (!command || !name) {
+    return false;
+  }
+
+  if (command === name) {
+    return true;
+  }
+
+  // Linux comm is usually limited to 15 bytes, so Windows exe names often appear truncated.
+  return name.startsWith(command) && command.length >= 8;
+}
+
 async function findWinePidForExe(exePath) {
   if (!exePath) return null;
   const baseName = path.basename(exePath);
+  const stemName = path.basename(exePath, path.extname(exePath));
   const lowerBaseName = baseName.toLowerCase();
+  const lowerStemName = stemName.toLowerCase();
+  const normalizedExePath = normalizeProcessText(exePath);
   const processes = await readLinuxProcesses();
   const match = processes.find((processInfo) => {
-    const command = processInfo.comm.toLowerCase();
-    const args = processInfo.args.toLowerCase();
-    return (command === "wine" || command === "wine64" || command.includes("proton")) && args.includes(lowerBaseName);
+    const command = normalizeProcessText(processInfo.comm);
+    const args = normalizeProcessText(processInfo.args);
+    const commandMatches =
+      linuxCommandMatchesName(command, lowerBaseName) ||
+      linuxCommandMatchesName(command, lowerStemName);
+    const argsMatch =
+      args.includes(lowerBaseName) ||
+      args.includes(normalizedExePath);
+
+    return commandMatches || argsMatch;
   });
 
   return match?.pid || null;
@@ -64,6 +91,23 @@ async function findLinuxPidByName(lookupName) {
     const pid = Number(stdout.trim().split("\n").filter(Boolean).at(-1));
     if (Number.isFinite(pid) && pid > 0) return pid;
   } catch {}
+
+  const lowerLookupName = lookupName.toLowerCase();
+  const lowerLookupExe = `${lowerLookupName}.exe`;
+  const processes = await readLinuxProcesses();
+  const match = processes.find((processInfo) => {
+    const command = normalizeProcessText(processInfo.comm);
+    const args = normalizeProcessText(processInfo.args);
+    return (
+      linuxCommandMatchesName(command, lowerLookupName) ||
+      linuxCommandMatchesName(command, lowerLookupExe) ||
+      args.includes(lowerLookupExe)
+    );
+  });
+
+  if (match?.pid) {
+    return match.pid;
+  }
 
   return null;
 }
